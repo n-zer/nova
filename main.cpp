@@ -13,7 +13,7 @@ void PrintStuff(void* data) {
 	for (unsigned int c = 0; c < 10000000; c++)
 		num++;
 	printf(std::to_string(num).c_str());
-	JobQueuePool::PushJob({ &PrintStuff , nullptr }, thread_id);
+	JobQueuePool::PushJob({ &PrintStuff , nullptr });
 }
 
 
