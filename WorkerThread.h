@@ -12,8 +12,9 @@ public:
 	static void JobLoop();
 	static unsigned int GetThreadId();
 private:
+	static void InitThread();
 	static thread_local unsigned int s_thread_id;
 	static unsigned int s_threadCount;
-	static mutex s_countLock;
+	static std::mutex s_countLock;
 	std::thread m_thread;
 };

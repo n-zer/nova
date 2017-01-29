@@ -9,6 +9,8 @@
 using namespace std;
 class JobQueue {
 public:
+	JobQueue();
+	JobQueue(const JobQueue &);
 	deque<Job> m_jobs;
 	bool PopJob(Job &j);
 	void PushJob(Job j);
@@ -18,16 +20,9 @@ private:
 
 class JobQueuePool {
 public:
-	static void PushJob(Job j) {
-		m_queues[(WorkerThread::GetThreadId() + 1) % m_size].PushJob(j);
-	}
-	static bool PopJob(Job &j) {
-		return m_queues[WorkerThread::GetThreadId()].PopJob(j);
-	}
-	static void InitPool(unsigned int numCores) {
-		//m_size = numCores;
-		//m_queues = new JobQueue[numCores];
-	}
+	static void PushJob(Job j);
+	static bool PopJob(Job &j);
+	static void InitPool(unsigned int numCores);
 private:
 	static vector<JobQueue> m_queues;
 	static unsigned int m_size;

@@ -1,15 +1,11 @@
 #include "WorkerThread.h"
 
-unsigned int WorkerThread::s_thread_id = 0;
+thread_local unsigned int WorkerThread::s_thread_id = 0;
 unsigned int WorkerThread::s_threadCount = 1;
+std::mutex WorkerThread::s_countLock;
 
 WorkerThread::WorkerThread() {
-	{
-		lock_guard<mutex> lock(s_countLock);
-		s_thread_id = s_threadCount;
-		s_threadCount++;
-	}
-	m_thread = std::thread(JobLoop);
+	m_thread = std::thread(InitThread);
 }
 
 void WorkerThread::JobLoop() {
@@ -25,4 +21,15 @@ void WorkerThread::JobLoop() {
 
 unsigned int WorkerThread::GetThreadId() {
 	return s_thread_id;
+}
+
+void WorkerThread::InitThread()
+{
+	{
+		lock_guard<mutex> lock(s_countLock);
+		s_thread_id = s_threadCount;
+		s_threadCount++;
+	}
+
+	JobLoop();
 }

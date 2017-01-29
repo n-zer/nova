@@ -1,7 +1,16 @@
 #include "JobQueue.h"
 
 unsigned int JobQueuePool::m_size = 0;
-JobQueue* JobQueuePool::m_queues = nullptr;
+vector<JobQueue> JobQueuePool::m_queues;
+
+JobQueue::JobQueue()
+{
+}
+
+JobQueue::JobQueue(const JobQueue & other)
+{
+	m_jobs = other.m_jobs;
+}
 
 bool JobQueue::PopJob(Job &j)
 {
@@ -18,4 +27,17 @@ void JobQueue::PushJob(Job j)
 {
 	lock_guard<mutex> lg(m_lock);
 	m_jobs.push_back(j);
+}
+
+void JobQueuePool::PushJob(Job j) {
+	m_queues[(WorkerThread::GetThreadId() + 1) % m_size].PushJob(j);
+}
+
+bool JobQueuePool::PopJob(Job &j) {
+	return m_queues[WorkerThread::GetThreadId()].PopJob(j);
+}
+
+void JobQueuePool::InitPool(unsigned int numCores) {
+	m_size = numCores;
+	m_queues.resize(numCores);
 }
