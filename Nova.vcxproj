@@ -111,15 +111,17 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="DXCore.cpp" />
-    <ClCompile Include="EventQueue.cpp" />
+    <ClCompile Include="JobQueue.cpp" />
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="WorkerThread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DXCore.h" />
     <ClInclude Include="JobQueue.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="Job.h" />
+    <ClInclude Include="WorkerThread.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

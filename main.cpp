@@ -6,24 +6,17 @@
 #include "Game.h"
 #include "JobQueue.h"
 
-void PrintStuff() {
+thread_local unsigned int thread_id;
+
+void PrintStuff(void* data) {
 	unsigned int num = 0;
 	for (unsigned int c = 0; c < 10000000; c++)
 		num++;
 	printf(std::to_string(num).c_str());
+	JobQueuePool::PushJob({ &PrintStuff , nullptr }, thread_id);
 }
 
-DWORD WINAPI JobLoop(LPVOID lpParam) {
-	unsigned int id = *((unsigned int*)lpParam);
-	Job j;
-	while (true) {
-		if (JobQueuePool::PopJob(j, id)) {
-			j.m_task();
-			JobQueuePool::PushJob({ &PrintStuff }, id);
-		}
-	}
-	delete lpParam;
-}
+
 
 // --------------------------------------------------------
 // Entry point for a graphical (non-console) Windows application
@@ -64,19 +57,12 @@ int WINAPI WinMain(
 	// Begin the message and game loop, and then return
 	// whatever we get back once the game loop is over
 	//return dxGame.Run();
+	WorkerThread threads[8];
 	JobQueuePool::InitPool(std::thread::hardware_concurrency());
 	for (unsigned int c = 0; c < std::thread::hardware_concurrency() - 1; c++) {
-		unsigned int * id = new unsigned int(c);
-		CreateThread(
-			NULL,                   // default security attributes
-			0,                      // use default stack size  
-			JobLoop,       // thread function name
-			id,          // argument to thread function 
-			0,                      // use default creation flags 
-			NULL);   // returns the thread identifier 
-		JobQueuePool::PushJob({ &PrintStuff }, c);
+		JobQueuePool::PushJob({ &PrintStuff });
 	}
-	JobLoop(new unsigned int(std::thread::hardware_concurrency() - 1));
+	WorkerThread::JobLoop();
 }
 
 /*static float fRand(float min, float max) {

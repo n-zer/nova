@@ -4,6 +4,7 @@
 #include <mutex>
 #include <vector>
 #include "Job.h"
+#include "WorkerThread.h"
 
 using namespace std;
 class JobQueue {
@@ -17,17 +18,17 @@ private:
 
 class JobQueuePool {
 public:
-	static void PushJob(Job j, unsigned int id) {
-		m_queues[(id + 1) % m_size].PushJob(j);
+	static void PushJob(Job j) {
+		m_queues[(WorkerThread::GetThreadId() + 1) % m_size].PushJob(j);
 	}
-	static bool PopJob(Job &j, unsigned int id) {
-		return m_queues[id].PopJob(j);
+	static bool PopJob(Job &j) {
+		return m_queues[WorkerThread::GetThreadId()].PopJob(j);
 	}
 	static void InitPool(unsigned int numCores) {
-		m_size = numCores;
-		m_queues = new JobQueue[numCores];
+		//m_size = numCores;
+		//m_queues = new JobQueue[numCores];
 	}
 private:
-	static JobQueue* m_queues;
+	static vector<JobQueue> m_queues;
 	static unsigned int m_size;
 };
