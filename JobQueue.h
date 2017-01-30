@@ -8,6 +8,8 @@
 #include "BatchJobData.h"
 #include "Globals.h"
 
+typedef void (*PushFunction)(Job);
+
 using namespace std;
 class JobQueue {
 public:

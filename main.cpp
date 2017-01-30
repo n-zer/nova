@@ -8,6 +8,7 @@
 #include "Game.h"
 #include "JobQueue.h"
 #include "BatchJobData.h"
+#include "JobCounter.h"
 
 vector<unsigned int> printTest;
 
@@ -113,8 +114,11 @@ int WINAPI WinMain(
 	/*for (unsigned int c = 0; c < threadCount; c++) {
 		JobQueuePool::PushJob({ &PrintStuff });
 	}*/
+	JobCounter printCounter;
 	BatchJobData* printJobData = new BatchJobData{ unsigned int(0), printTest.size() };
-	JobQueuePool::PushBatchJob({ PrintStuffBatch, printJobData});
+	Job batchJob = { PrintStuffBatch, printJobData, &printCounter };
+	printCounter.Init(JobQueuePool::PushBatchJob, batchJob, 5);
+	JobQueuePool::PushBatchJob(batchJob);
 
 	//create threads
 	vector<WorkerThread> threads;
