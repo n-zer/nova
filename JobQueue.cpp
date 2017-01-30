@@ -40,7 +40,7 @@ bool JobQueuePool::PopJob(Job &j) {
 void JobQueuePool::PushBatchJob(Job j)
 {
 	BatchJobData bjd = *static_cast<BatchJobData*>(j.m_data);
-	unsigned int lengthPer = static_cast<int>(ceilf(bjd.count / m_size));
+	unsigned int lengthPer = static_cast<int>(ceilf(static_cast<float>(bjd.count) / m_size));
 	unsigned int end = bjd.start + bjd.count;
 	unsigned int numJobs = 0;
 	BatchJobData* bjds = new BatchJobData[m_size]();

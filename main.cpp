@@ -1,3 +1,5 @@
+//#define NOMINMAX
+
 #include <Windows.h>
 #include <time.h>
 #include <thread>
@@ -99,7 +101,7 @@ int WINAPI WinMain(
 	// whatever we get back once the game loop is over
 	//return dxGame.Run();
 
-	printTest.resize(100000);
+	printTest.resize(2);
 
 	//set number of threads
 	unsigned int threadCount = std::thread::hardware_concurrency();
@@ -111,7 +113,7 @@ int WINAPI WinMain(
 	/*for (unsigned int c = 0; c < threadCount; c++) {
 		JobQueuePool::PushJob({ &PrintStuff });
 	}*/
-	BatchJobData* printJobData = new BatchJobData{ 0, printTest.size() };
+	BatchJobData* printJobData = new BatchJobData{ unsigned int(0), printTest.size() };
 	JobQueuePool::PushBatchJob({ PrintStuffBatch, printJobData});
 
 	//create threads
