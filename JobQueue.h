@@ -5,6 +5,8 @@
 #include <vector>
 #include "Job.h"
 #include "WorkerThread.h"
+#include "BatchJobData.h"
+#include "Globals.h"
 
 using namespace std;
 class JobQueue {
@@ -22,6 +24,7 @@ class JobQueuePool {
 public:
 	static void PushJob(Job j);
 	static bool PopJob(Job &j);
+	static void PushBatchJob(Job j);
 	static void InitPool(unsigned int numCores);
 private:
 	static vector<JobQueue> m_queues;

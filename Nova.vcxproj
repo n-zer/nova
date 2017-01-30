@@ -117,7 +117,9 @@
     <ClCompile Include="WorkerThread.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BatchJobData.h" />
     <ClInclude Include="DXCore.h" />
+    <ClInclude Include="Globals.h" />
     <ClInclude Include="JobQueue.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="Job.h" />
