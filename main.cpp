@@ -30,7 +30,7 @@ void PrintStuffBatch(JobData* bjd) {
 	}
 }
 
-void QueuePrintJob(JobData*) {
+void QueuePrintJob(JobData* data) {
 	JobCounter printCounter(JobQueuePool::PushBatchJob, { QueuePrintJob, nullptr });
 	BatchJobData pJobData;
 	pJobData.start = 0;

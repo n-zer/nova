@@ -3,7 +3,9 @@
 #include "JobCounter.h"
 #include "JobData.h"
 
+typedef void(*JobFunction)(JobData*);
+
 struct Job {
-	void (*m_task)(JobData*);
+	JobFunction m_task;
 	JobData* m_data;
 };
