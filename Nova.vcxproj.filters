@@ -59,5 +59,11 @@
     <ClInclude Include="JobCounter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="JobData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CountableJobData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

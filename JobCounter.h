@@ -6,12 +6,14 @@
 class JobCounter {
 public:
 	JobCounter();
-	JobCounter(PushFunction, Job, unsigned int);
-	void Init(PushFunction, Job, unsigned int);
-	void Increment(unsigned int);
+	JobCounter(PushFunction, Job);
+	JobCounter(const JobCounter & other);
+	JobCounter& operator=(const JobCounter & other);
+	JobCounter(const JobCounter && other);
+	JobCounter& operator=(const JobCounter && other);
+	~JobCounter();
 private:
-	std::atomic<unsigned int> m_counter;
-	unsigned int m_limit;
+	std::atomic<unsigned int> * m_counter;
 	PushFunction m_function;
 	Job m_job;
 };

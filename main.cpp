@@ -9,10 +9,11 @@
 #include "JobQueue.h"
 #include "BatchJobData.h"
 #include "JobCounter.h"
+#include "JobData.h"
 
 vector<unsigned int> printTest;
 
-void PrintStuff(void* data) {
+void PrintStuff(JobData* data) {
 	unsigned int num = 0;
 	for (unsigned int c = 0; c < 10000000; c++)
 		num++;
@@ -20,13 +21,24 @@ void PrintStuff(void* data) {
 	JobQueuePool::PushJob({ &PrintStuff , nullptr });
 }
 
-void PrintStuffBatch(void* bjd) {
-	BatchJobData& bjdr = *static_cast<BatchJobData*>(bjd);
+void PrintStuffBatch(JobData* bjd) {
+	BatchJobData& bjdr = *dynamic_cast<BatchJobData*>(bjd);
 	for (unsigned int c = bjdr.start; c < bjdr.start + bjdr.count; c++) {
 		for (unsigned int n = 0; n < 10000000; n++)
 			printTest[c]++;
 		printf(std::to_string(printTest[c]).c_str());
 	}
+}
+
+void QueuePrintJob(JobData*) {
+	JobCounter printCounter(JobQueuePool::PushBatchJob, { QueuePrintJob, nullptr });
+	BatchJobData pJobData;
+	pJobData.start = 0;
+	pJobData.count = printTest.size();
+	pJobData.m_counter = printCounter;
+	BatchJobData * printJobData = new BatchJobData(pJobData);
+	Job batchJob = { PrintStuffBatch, printJobData };
+	JobQueuePool::PushBatchJob(batchJob);
 }
 
 
@@ -114,11 +126,8 @@ int WINAPI WinMain(
 	/*for (unsigned int c = 0; c < threadCount; c++) {
 		JobQueuePool::PushJob({ &PrintStuff });
 	}*/
-	JobCounter printCounter;
-	BatchJobData* printJobData = new BatchJobData{ unsigned int(0), printTest.size() };
-	Job batchJob = { PrintStuffBatch, printJobData, &printCounter };
-	printCounter.Init(JobQueuePool::PushBatchJob, batchJob, 5);
-	JobQueuePool::PushBatchJob(batchJob);
+
+	
 
 	//create threads
 	vector<WorkerThread> threads;

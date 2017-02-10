@@ -15,8 +15,6 @@ void WorkerThread::JobLoop() {
 			j.m_task(j.m_data);
 			delete j.m_data;
 			j.m_data = nullptr;
-			if (j.m_counter != nullptr)
-				j.m_counter->Increment();
 		}
 	}
 }
