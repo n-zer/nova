@@ -4,11 +4,7 @@
 #include <mutex>
 #include <vector>
 #include "Job.h"
-#include "WorkerThread.h"
-#include "BatchJobData.h"
 #include "Globals.h"
-
-typedef void (*PushFunction)(Job);
 
 using namespace std;
 class JobQueue {

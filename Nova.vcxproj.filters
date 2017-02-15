@@ -50,9 +50,6 @@
     <ClInclude Include="WorkerThread.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="BatchJobData.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Globals.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -62,7 +59,16 @@
     <ClInclude Include="JobData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="CountableJobData.h">
+    <ClInclude Include="PushFunction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="JobFunction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="JobFD.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="JobDataFD.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

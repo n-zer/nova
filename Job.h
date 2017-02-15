@@ -1,9 +1,7 @@
 #pragma once
 
-#include "JobCounter.h"
-#include "JobData.h"
-
-typedef void(*JobFunction)(JobData*);
+#include "JobDataFD.h"
+#include "JobFunction.h"
 
 struct Job {
 	JobFunction m_task;

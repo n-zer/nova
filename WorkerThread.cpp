@@ -1,4 +1,7 @@
 #include "WorkerThread.h"
+#include "Job.h"
+#include "JobQueue.h"
+#include "JobData.h"
 
 thread_local unsigned int WorkerThread::s_thread_id = 0;
 unsigned int WorkerThread::s_threadCount = 1;
@@ -9,8 +12,9 @@ WorkerThread::WorkerThread() {
 }
 
 void WorkerThread::JobLoop() {
-	Job j;
+	
 	while (true) {
+		Job j;
 		if (JobQueuePool::PopJob(j)) {
 			j.m_task(j.m_data);
 			delete j.m_data;

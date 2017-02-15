@@ -1,4 +1,6 @@
 #include "JobQueue.h"
+#include "WorkerThread.h"
+#include "JobData.h"
 
 unsigned int JobQueuePool::m_size = 0;
 vector<JobQueue> JobQueuePool::m_queues;
@@ -39,15 +41,16 @@ bool JobQueuePool::PopJob(Job &j) {
 
 void JobQueuePool::PushBatchJob(Job j)
 {
-	BatchJobData bjd = *static_cast<BatchJobData*>(j.m_data);
+	BatchJobData & bjd = *static_cast<BatchJobData*>(j.m_data);
 	unsigned int lengthPer = static_cast<int>(ceilf(static_cast<float>(bjd.count) / m_size));
 	unsigned int end = bjd.start + bjd.count;
 	unsigned int numJobs = 0;
-	BatchJobData* bjds = new BatchJobData[m_size]();
+	vector<BatchJobData> bjds(m_size);
 	for (unsigned int c = 0; c < m_size; c++) {
 		unsigned int len = clip(end - bjd.start, unsigned int(0), lengthPer);
 		bjds[c].start = bjd.start;
 		bjds[c].count = len;
+		bjds[c].m_counter = bjd.m_counter;
 		if (len > 0) {
 			bjd.start += lengthPer;
 			numJobs++;
@@ -55,11 +58,9 @@ void JobQueuePool::PushBatchJob(Job j)
 	}
 	unsigned int id = WorkerThread::GetThreadId();
 	for (unsigned int c = 0; c < numJobs; c++) {
-		BatchJobData* newBjd = new BatchJobData();
-		*newBjd = bjds[c];
+		BatchJobData* newBjd = new BatchJobData(bjds[c]);
 		m_queues[(id + c) % m_size].PushJob({ j.m_task,newBjd });
 	}
-	delete[] bjds;
 }
 
 void JobQueuePool::InitPool(unsigned int numCores) {

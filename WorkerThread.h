@@ -3,8 +3,6 @@
 #include <thread>
 #include <Windows.h>
 #include <mutex>
-#include "Job.h"
-#include "JobQueue.h"
 
 class WorkerThread {
 public:

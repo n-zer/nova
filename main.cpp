@@ -7,9 +7,10 @@
 #include <vector>
 #include "Game.h"
 #include "JobQueue.h"
-#include "BatchJobData.h"
+#include "JobData.h"
 #include "JobCounter.h"
 #include "JobData.h"
+#include "WorkerThread.h"
 
 vector<unsigned int> printTest;
 
@@ -24,20 +25,18 @@ void PrintStuff(JobData* data) {
 void PrintStuffBatch(JobData* bjd) {
 	BatchJobData& bjdr = *dynamic_cast<BatchJobData*>(bjd);
 	for (unsigned int c = bjdr.start; c < bjdr.start + bjdr.count; c++) {
-		for (unsigned int n = 0; n < 10000000; n++)
+		for (unsigned int n = 0; n < 100000000; n++)
 			printTest[c]++;
-		printf(std::to_string(printTest[c]).c_str());
+		printf((std::to_string(printTest[c]) + "\n").c_str());
 	}
 }
 
 void QueuePrintJob(JobData* data) {
-	JobCounter printCounter(JobQueuePool::PushBatchJob, { QueuePrintJob, nullptr });
 	BatchJobData pJobData;
 	pJobData.start = 0;
 	pJobData.count = printTest.size();
-	pJobData.m_counter = printCounter;
-	BatchJobData * printJobData = new BatchJobData(pJobData);
-	Job batchJob = { PrintStuffBatch, printJobData };
+	pJobData.m_counter = std::make_shared<JobCounter>(JobQueuePool::PushJob, Job{ QueuePrintJob, nullptr });
+	Job batchJob = { PrintStuffBatch, &pJobData };
 	JobQueuePool::PushBatchJob(batchJob);
 }
 
@@ -114,14 +113,20 @@ int WINAPI WinMain(
 	// whatever we get back once the game loop is over
 	//return dxGame.Run();
 
-	printTest.resize(2);
 
+#ifdef _DEBUG
 	//set number of threads
+	unsigned int threadCount = 1;
+#else
 	unsigned int threadCount = std::thread::hardware_concurrency();
+#endif
+
+
+	printTest.resize(threadCount);
 
 	//create job queues
 	JobQueuePool::InitPool(threadCount);	
-
+	QueuePrintJob(nullptr);
 	//push initialization logic to the queues
 	/*for (unsigned int c = 0; c < threadCount; c++) {
 		JobQueuePool::PushJob({ &PrintStuff });
