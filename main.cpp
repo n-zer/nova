@@ -35,7 +35,9 @@ void QueuePrintJob(JobData* data) {
 	BatchJobData pJobData;
 	pJobData.start = 0;
 	pJobData.count = printTest.size();
-	pJobData.m_counter = std::make_shared<JobCounter>(JobQueuePool::PushJob, Job{ QueuePrintJob, nullptr });
+	CountableJobData cJobData;
+	cJobData.m_counters.push_back(std::make_shared<JobCounter>(JobQueuePool::PushJob, Job{ QueuePrintJob, nullptr }));
+	pJobData.jobData = &cJobData;
 	Job batchJob = { PrintStuffBatch, &pJobData };
 	JobQueuePool::PushBatchJob(batchJob);
 }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <vector>
+
 #include "JobDataFD.h"
 #include "JobCounter.h"
 
@@ -9,10 +11,11 @@ struct JobData {
 };
 
 struct CountableJobData : JobData {
-	 shared_ptr<JobCounter> m_counter;
+	 vector<shared_ptr<JobCounter>> m_counters;
 };
 
-struct BatchJobData : CountableJobData {
+struct BatchJobData : JobData {
 	unsigned int start;
 	unsigned int count;
+	CountableJobData* jobData;
 };

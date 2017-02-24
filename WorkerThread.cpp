@@ -34,6 +34,6 @@ void WorkerThread::InitThread()
 		s_thread_id = s_threadCount;
 		s_threadCount++;
 	}
-
+	ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 	JobLoop();
 }
