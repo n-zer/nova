@@ -31,7 +31,9 @@ void JobQueue::PushJob(Job j)
 	m_jobs.push_back(j);
 }
 
-void JobQueuePool::PushJob(Job j) {
+//Take a job, add a counter to it that deletes its data, then push it to neighboring queue
+void JobQueuePool::PushJob(Job& j) {
+	j.m_counters.push_back(std::make_shared<JobCounter>(&Job::DeleteData, j.m_data));
 	m_queues[(WorkerThread::GetThreadId() + 1) % m_size].PushJob(j);
 }
 
@@ -39,7 +41,7 @@ bool JobQueuePool::PopJob(Job &j) {
 	return m_queues[WorkerThread::GetThreadId()].PopJob(j);
 }
 
-void JobQueuePool::PushBatchJob(Job j)
+void JobQueuePool::PushBatchJob(Job& j)
 {
 	//get job data
 	BatchJobData & bjd = *static_cast<BatchJobData*>(j.m_data);
@@ -49,14 +51,18 @@ void JobQueuePool::PushBatchJob(Job j)
 	unsigned int end = bjd.start + bjd.count;
 	unsigned int numJobs = 0;
 
+	//create counter to delete underlying data
+	shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(&Job::DeleteData, bjd.data);
+
 	//create per-core jobs (there may be less than one per core)
-	vector<BatchJobData> bjds(m_size);
+	vector<Job> bjs(m_size);
 	for (unsigned int c = 0; c < m_size; c++) {
 		//clamp remaining items to number of items per core
 		unsigned int len = clip(end - bjd.start, unsigned int(0), lengthPer);
-		bjds[c].start = bjd.start;
-		bjds[c].count = len;
-		bjds[c].jobData = bjd.jobData;
+		bjs[c].m_task = j.m_task;
+		bjs[c].m_data = new BatchJobData(bjd.start, len, bjd.data);
+		bjs[c].m_counters = j.m_counters;
+		bjs[c].m_counters.push_back(jc);
 		//move starting point forwards
 		if (len > 0) {
 			bjd.start += lengthPer;
@@ -67,8 +73,7 @@ void JobQueuePool::PushBatchJob(Job j)
 	//push jobs to queues
 	unsigned int id = WorkerThread::GetThreadId();
 	for (unsigned int c = 0; c < numJobs; c++) {
-		BatchJobData* newBjd = new BatchJobData(bjds[c]); //slicing, fix this
-		m_queues[(id + c) % m_size].PushJob({ j.m_task,newBjd });
+		m_queues[(id + c) % m_size].PushJob(bjs[c]);
 	}
 }
 

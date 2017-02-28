@@ -17,8 +17,6 @@ void WorkerThread::JobLoop() {
 		Job j;
 		if (JobQueuePool::PopJob(j)) {
 			j.m_task(j.m_data);
-			delete j.m_data;
-			j.m_data = nullptr;
 		}
 	}
 }

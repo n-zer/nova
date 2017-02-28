@@ -111,6 +111,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="DXCore.cpp" />
+    <ClCompile Include="Job.cpp" />
     <ClCompile Include="JobCounter.cpp" />
     <ClCompile Include="JobQueue.cpp" />
     <ClCompile Include="Game.cpp" />
@@ -121,6 +122,7 @@
     <ClInclude Include="DXCore.h" />
     <ClInclude Include="Globals.h" />
     <ClInclude Include="JobCounter.h" />
+    <ClInclude Include="JobCounterFD.h" />
     <ClInclude Include="JobData.h" />
     <ClInclude Include="JobDataFD.h" />
     <ClInclude Include="JobFD.h" />
@@ -128,7 +130,6 @@
     <ClInclude Include="JobQueue.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="Job.h" />
-    <ClInclude Include="PushFunction.h" />
     <ClInclude Include="WorkerThread.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

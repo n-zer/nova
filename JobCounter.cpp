@@ -1,18 +1,17 @@
 #include "JobCounter.h"
 #include "Job.h"
+#include "JobData.h"
 
-JobCounter::JobCounter()
+JobCounter::JobCounter(Job j)
 {
-	m_function = nullptr;
-}
-
-JobCounter::JobCounter(PushFunction pf, Job j)
-{
-	m_function = pf;
 	m_job = j;
 }
 
+JobCounter::JobCounter(JobFunction jf, JobData * jd)
+{
+	m_job = { jf, jd };
+}
+
 JobCounter::~JobCounter() {
-	if (m_function)
-		m_function(m_job);
+	m_job.m_task(m_job.m_data);
 }

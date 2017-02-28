@@ -10,12 +10,15 @@ struct JobData {
 	virtual ~JobData() {};
 };
 
-struct CountableJobData : JobData {
-	 vector<shared_ptr<JobCounter>> m_counters;
+struct PrintData : JobData {
+	long long data;
+	PrintData(long long data) : data(data) {};
 };
 
 struct BatchJobData : JobData {
 	unsigned int start;
 	unsigned int count;
-	CountableJobData* jobData;
+	JobData* data;
+	BatchJobData(unsigned int start, unsigned int count, JobData* jd) : start(start), count(count), data(jd) {};
+	~BatchJobData() { delete data; };
 };

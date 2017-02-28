@@ -1,15 +1,15 @@
 #pragma once
 
 #include <atomic>
-#include "PushFunction.h"
-#include "JobFD.h"
+#include "Job.h"
+#include "JobFunction.h"
+#include "JobDataFD.h"
 
 class JobCounter {
 public:
-	JobCounter();
-	JobCounter(PushFunction, Job);
+	JobCounter(Job);
+	JobCounter(JobFunction, JobData*);
 	~JobCounter();
 private:
-	PushFunction m_function;
 	Job m_job;
 };

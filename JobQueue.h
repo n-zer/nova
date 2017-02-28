@@ -26,7 +26,7 @@ private:
 class JobQueuePool {
 public:
 	//Pushes a job to the calling thread's neighbor's queue
-	static void PushJob(Job j);
+	static void PushJob(Job& j);
 
 	//Attempts to grab a job from the calling thread's queue. Returns true if successful
 	static bool PopJob(Job &j);
@@ -35,7 +35,7 @@ public:
 	//equal or less than the number of worker threads, with each resulting job having
 	//a contiguous portion of the initial range. Useful for implementing parallel_for-esque
 	//functionality.
-	static void PushBatchJob(Job j);
+	static void PushBatchJob(Job& j);
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.

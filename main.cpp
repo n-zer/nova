@@ -19,7 +19,7 @@ void PrintStuff(JobData* data) {
 	for (unsigned int c = 0; c < 10000000; c++)
 		num++;
 	printf(std::to_string(num).c_str());
-	JobQueuePool::PushJob({ &PrintStuff , nullptr });
+	JobQueuePool::PushJob(Job{ &PrintStuff , nullptr });
 }
 
 void PrintStuffBatch(JobData* bjd) {
@@ -32,14 +32,12 @@ void PrintStuffBatch(JobData* bjd) {
 }
 
 void QueuePrintJob(JobData* data) {
-	BatchJobData pJobData;
-	pJobData.start = 0;
-	pJobData.count = printTest.size();
-	CountableJobData cJobData;
-	cJobData.m_counters.push_back(std::make_shared<JobCounter>(JobQueuePool::PushJob, Job{ QueuePrintJob, nullptr }));
-	pJobData.jobData = &cJobData;
+	BatchJobData pJobData(0, printTest.size(), new PrintData{ printTest[0] });
 	Job batchJob = { PrintStuffBatch, &pJobData };
+	std::shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(Job{ QueuePrintJob,nullptr });
+	batchJob.m_counters.push_back(jc);
 	JobQueuePool::PushBatchJob(batchJob);
+	int test = 0;
 }
 
 
