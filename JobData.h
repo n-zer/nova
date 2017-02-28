@@ -11,8 +11,8 @@ struct JobData {
 };
 
 struct PrintData : JobData {
-	long long data;
-	PrintData(long long data) : data(data) {};
+	long long data[10000000];
+	PrintData() : data() {};
 };
 
 struct BatchJobData : JobData {
@@ -20,5 +20,4 @@ struct BatchJobData : JobData {
 	unsigned int count;
 	JobData* data;
 	BatchJobData(unsigned int start, unsigned int count, JobData* jd) : start(start), count(count), data(jd) {};
-	~BatchJobData() { delete data; };
 };

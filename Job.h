@@ -12,4 +12,5 @@ struct Job {
 	std::vector<std::shared_ptr<JobCounter>> m_counters;
 
 	static void DeleteData(JobData* jd);
+	static void DeleteBatchData(JobData* jd);
 };

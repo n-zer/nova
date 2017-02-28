@@ -52,7 +52,7 @@ void JobQueuePool::PushBatchJob(Job& j)
 	unsigned int numJobs = 0;
 
 	//create counter to delete underlying data
-	shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(&Job::DeleteData, bjd.data);
+	shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(&Job::DeleteBatchData, bjd.data);
 
 	//create per-core jobs (there may be less than one per core)
 	vector<Job> bjs(m_size);

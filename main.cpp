@@ -32,7 +32,8 @@ void PrintStuffBatch(JobData* bjd) {
 }
 
 void QueuePrintJob(JobData* data) {
-	BatchJobData pJobData(0, printTest.size(), new PrintData{ printTest[0] });
+	PrintData* pd = new PrintData{};
+	BatchJobData pJobData(0, printTest.size(), pd);
 	Job batchJob = { PrintStuffBatch, &pJobData };
 	std::shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(Job{ QueuePrintJob,nullptr });
 	batchJob.m_counters.push_back(jc);
