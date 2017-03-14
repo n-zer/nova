@@ -2,22 +2,21 @@
 
 #include <memory>
 #include <vector>
+#include <tuple>
 
 #include "JobDataFD.h"
-#include "JobCounter.h"
 
-struct JobData {
-	virtual ~JobData() {};
+struct JobBase {
+	JobBase() {};
+	virtual ~JobBase() {};
 };
 
-struct PrintData : JobData {
-	long long data[10000000];
-	PrintData() : data() {};
-};
-
-struct BatchJobData : JobData {
-	unsigned int start;
-	unsigned int count;
-	JobData* data;
-	BatchJobData(unsigned int start, unsigned int count, JobData* jd) : start(start), count(count), data(jd) {};
+template <typename ... Ts>
+struct Job : JobBase {
+	void(*m_func)(Ts...);
+	std::tuple<Ts...> m_tuple;
+	Job(void(*func)(Ts...), Ts... args) {
+		m_func = func;
+		m_tuple = std::make_tuple(args...);
+	}
 };

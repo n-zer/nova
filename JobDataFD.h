@@ -1,5 +1,5 @@
 #pragma once
 
-struct JobData;
+struct JobBase;
 struct CountableJobData;
 struct BatchJobData;

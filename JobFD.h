@@ -1,3 +1,3 @@
 #pragma once
 
-struct Job;
+struct GenericJob;

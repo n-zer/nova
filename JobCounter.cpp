@@ -2,12 +2,12 @@
 #include "Job.h"
 #include "JobData.h"
 
-JobCounter::JobCounter(Job j)
+JobCounter::JobCounter(GenericJob j)
 {
 	m_job = j;
 }
 
-JobCounter::JobCounter(JobFunction jf, JobData * jd)
+JobCounter::JobCounter(JobFunction jf, JobBase * jd)
 {
 	m_job = { jf, jd };
 }

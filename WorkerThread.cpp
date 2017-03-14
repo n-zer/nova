@@ -14,7 +14,7 @@ WorkerThread::WorkerThread() {
 void WorkerThread::JobLoop() {
 	
 	while (true) {
-		Job j;
+		GenericJob j;
 		if (JobQueuePool::PopJob(j)) {
 			j.m_task(j.m_data);
 		}

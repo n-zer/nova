@@ -2,4 +2,4 @@
 
 #include "JobDataFD.h"
 
-typedef void(*JobFunction)(JobData*);
+typedef void(*JobFunction)(JobBase*);

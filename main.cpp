@@ -14,32 +14,39 @@
 
 vector<unsigned int> printTest;
 
-void PrintStuff(JobData* data) {
-	unsigned int num = 0;
-	for (unsigned int c = 0; c < 10000000; c++)
-		num++;
-	printf(std::to_string(num).c_str());
-	JobQueuePool::PushJob(Job{ &PrintStuff , nullptr });
+void TestTemplatedJobs(int number, int c, float fl) {
+	printf((std::to_string(number + fl + c).c_str()));
 }
 
-void PrintStuffBatch(JobData* bjd) {
-	BatchJobData& bjdr = *dynamic_cast<BatchJobData*>(bjd);
-	for (unsigned int c = bjdr.start; c < bjdr.start + bjdr.count; c++) {
-		for (unsigned int n = 0; n < 100000000; n++)
-			printTest[c]++;
-		printf((std::to_string(printTest[c]) + "\n").c_str());
-	}
-}
-
-void QueuePrintJob(JobData* data) {
-	PrintData* pd = new PrintData{};
-	BatchJobData pJobData(0, printTest.size(), pd);
-	Job batchJob = { PrintStuffBatch, &pJobData };
-	std::shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(Job{ QueuePrintJob,nullptr });
-	batchJob.m_counters.push_back(jc);
-	JobQueuePool::PushBatchJob(batchJob);
-	int test = 0;
-}
+//void PrintStuff(JobDataBase* data) {
+//	unsigned int num = 0;
+//	for (unsigned int c = 0; c < 10000000; c++)
+//		num++;
+//	printf(std::to_string(num).c_str());
+//	JobQueuePool::PushJob(GenericJob{ &PrintStuff , nullptr });
+//}
+//
+//void PrintStuffBatch(unsigned int start, unsigned int count) {
+//	for (unsigned int c = start; c < start + count; c++) {
+//		for (unsigned int n = 0; n < 100000000; n++)
+//			printTest[c]++;
+//		printf((std::to_string(printTest[c]) + "\n").c_str());
+//	}
+//}
+//
+//void QueuePrintJob(JobDataBase* data) {
+//	PrintData* pd = new PrintData{};
+//	BatchJobData pJobData(0, printTest.size(), pd);
+//	GenericJob batchJob = { PrintStuffBatch, &pJobData };
+//	std::shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(GenericJob{ QueuePrintJob,nullptr });
+//	batchJob.m_counters.push_back(jc);
+//	JobQueuePool::PushJobAsBatch(batchJob);
+//	int test = 0;
+//}
+//
+//void Test(int number, int otherNumber, float decimalNumber) {
+//	printf(std::to_string(number + otherNumber + decimalNumber).c_str());
+//}
 
 
 void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, int windowColumns)
@@ -114,6 +121,7 @@ int WINAPI WinMain(
 	// whatever we get back once the game loop is over
 	//return dxGame.Run();
 
+	auto tup = std::make_tuple(5, 6, 4.0f);
 
 #ifdef _DEBUG
 	//set number of threads
@@ -127,7 +135,8 @@ int WINAPI WinMain(
 
 	//create job queues
 	JobQueuePool::InitPool(threadCount);	
-	QueuePrintJob(nullptr);
+	JobQueuePool::PushJob(Job<int, int, float>(&TestTemplatedJobs, 5, 3, 6.0f));
+	//QueuePrintJob(nullptr);
 	//push initialization logic to the queues
 	/*for (unsigned int c = 0; c < threadCount; c++) {
 		JobQueuePool::PushJob({ &PrintStuff });

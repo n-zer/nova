@@ -12,38 +12,44 @@ class JobQueue {
 public:
 	JobQueue();
 	JobQueue(const JobQueue &);
-	deque<Job> m_jobs;
+	deque<GenericJob> m_jobs;
 
 	//Attempts to remove a job from the queue. Returns true if successful
-	bool PopJob(Job &j);
+	bool PopJob(GenericJob &j);
 
 	//Pushes a job to the queue
-	void PushJob(Job j);
+	void PushJob(GenericJob j);
 private:
 	mutex m_lock;
 };
 
 class JobQueuePool {
 public:
+	template<typename ... Ts>
+	static void PushJob(Job<Ts...> & j) {
+		JobBase* basePtr = new Job<Ts...>(j);
+		PushJob(GenericJob(&GenericJob::RunJob<Ts...>, basePtr ));
+	}
+
 	//Pushes a job to the calling thread's neighbor's queue
-	static void PushJob(Job& j);
+	static void PushJob(GenericJob& j);
 
 	//Attempts to grab a job from the calling thread's queue. Returns true if successful
-	static bool PopJob(Job &j);
+	static bool PopJob(GenericJob &j);
 
 	//Takes a job with a given range (e.g. 5 - 786) and splits it into a number of jobs
 	//equal or less than the number of worker threads, with each resulting job having
 	//a contiguous portion of the initial range. Useful for implementing parallel_for-esque
 	//functionality.
-	static void PushBatchJob(Job& j);
+	static void PushJobAsBatch(GenericJob& j, unsigned int start, unsigned int end);
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.
-	static void CallJob(Job j);
+	static void CallJob(GenericJob j);
 
 	//Creates a child batch job. Pushes the new jobs then suspends the current fiber. When all the
 	//resulting jobs are completed the current thread will switch back to the suspended fiber.
-	static void CallBatchJob(Job j);
+	static void CallBatchJob(GenericJob j);
 
 	static void InitPool(unsigned int numCores);
 

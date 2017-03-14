@@ -1,15 +1,14 @@
 #pragma once
 
-#include <atomic>
 #include "Job.h"
 #include "JobFunction.h"
 #include "JobDataFD.h"
 
 class JobCounter {
 public:
-	JobCounter(Job);
-	JobCounter(JobFunction, JobData*);
+	JobCounter(GenericJob);
+	JobCounter(JobFunction, JobBase*);
 	~JobCounter();
 private:
-	Job m_job;
+	GenericJob m_job;
 };
