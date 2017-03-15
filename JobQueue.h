@@ -6,6 +6,8 @@
 #include <Windows.h>
 #include "Job.h"
 #include "Globals.h"
+#include "JobCounter.h"
+#include "JobFunction.h"
 
 using namespace std;
 class JobQueue {
@@ -37,11 +39,35 @@ public:
 	//Attempts to grab a job from the calling thread's queue. Returns true if successful
 	static bool PopJob(GenericJob &j);
 
+
 	//Takes a job with a given range (e.g. 5 - 786) and splits it into a number of jobs
 	//equal or less than the number of worker threads, with each resulting job having
 	//a contiguous portion of the initial range. Useful for implementing parallel_for-esque
 	//functionality.
-	static void PushJobAsBatch(GenericJob& j, unsigned int start, unsigned int end);
+	template<typename ... Ts>
+	static void PushJobAsBatch(Job<unsigned int, unsigned int, Ts...> & j) {
+		unsigned int start = std::get<0>(j.m_tuple);
+		unsigned int end = std::get<1>(j.m_tuple);
+		unsigned int count = start - end;
+		JobBase* basePtr = new Job<unsigned int, unsigned int, Ts...>(j);
+
+		std::vector<GenericJob> jobs;
+
+		unsigned int sections = m_size;
+		if (count < sections)
+			sections = count;
+
+		for (unsigned int section = 1; section <= sections; section++) {
+			GenericJob gj(&GenericJob::RunBatchJob<section, sections, Ts...>, basePtr);
+			gj.m_counters.push_back(std::make_shared<JobCounter>(&GenericJob::DeleteData, gj.m_data));
+			jobs.push_back(gj);
+		}
+
+		unsigned int id = WorkerThread::GetThreadId();
+		for (unsigned int c = 0; c < jobs.size(); c++) {
+			m_queues[(id + c) % m_size].PushJob(jobs[c]);
+		}
+	}
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.

@@ -1,7 +1,6 @@
 #include "JobQueue.h"
 #include "WorkerThread.h"
 #include "JobData.h"
-#include "JobCounter.h"
 
 unsigned int JobQueuePool::m_size = 0;
 vector<JobQueue> JobQueuePool::m_queues;

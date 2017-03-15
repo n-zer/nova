@@ -14,7 +14,7 @@
 
 vector<unsigned int> printTest;
 
-void TestTemplatedJobs(int number, int c, float fl) {
+void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
 	printf((std::to_string(number + fl + c).c_str()));
 }
 
@@ -135,7 +135,7 @@ int WINAPI WinMain(
 
 	//create job queues
 	JobQueuePool::InitPool(threadCount);	
-	JobQueuePool::PushJob(Job<int, int, float>(&TestTemplatedJobs, 5, 3, 6.0f));
+	JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
 	//QueuePrintJob(nullptr);
 	//push initialization logic to the queues
 	/*for (unsigned int c = 0; c < threadCount; c++) {
