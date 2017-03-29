@@ -1,7 +1,7 @@
 #include "WorkerThread.h"
-#include "Job.h"
+#include "GenericJob.h"
 #include "JobQueue.h"
-#include "JobData.h"
+#include "Job.h"
 
 thread_local unsigned int WorkerThread::s_thread_id = 0;
 unsigned int WorkerThread::s_threadCount = 1;
@@ -23,6 +23,11 @@ void WorkerThread::JobLoop() {
 
 unsigned int WorkerThread::GetThreadId() {
 	return s_thread_id;
+}
+
+unsigned int WorkerThread::GetThreadCount()
+{
+	return s_threadCount;
 }
 
 void WorkerThread::InitThread()

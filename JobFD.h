@@ -1,3 +1,5 @@
 #pragma once
 
-struct GenericJob;
+struct JobBase;
+struct CountableJobData;
+struct BatchJobData;

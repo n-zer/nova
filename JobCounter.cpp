@@ -1,6 +1,6 @@
 #include "JobCounter.h"
+#include "GenericJob.h"
 #include "Job.h"
-#include "JobData.h"
 
 JobCounter::JobCounter(GenericJob j)
 {

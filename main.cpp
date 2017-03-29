@@ -7,15 +7,15 @@
 #include <vector>
 #include "Game.h"
 #include "JobQueue.h"
-#include "JobData.h"
+#include "Job.h"
 #include "JobCounter.h"
-#include "JobData.h"
 #include "WorkerThread.h"
 
 vector<unsigned int> printTest;
 
 void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
 	printf((std::to_string(number + fl + c).c_str()));
+	JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
 }
 
 //void PrintStuff(JobDataBase* data) {

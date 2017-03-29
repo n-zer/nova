@@ -44,9 +44,6 @@
     <ClInclude Include="Game.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Job.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="JobQueue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -59,19 +56,22 @@
     <ClInclude Include="JobCounter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="JobData.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="JobFunction.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="JobFD.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="JobDataFD.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="JobCounterFD.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GenericJob.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GenericJobFD.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Job.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="JobFD.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

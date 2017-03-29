@@ -123,13 +123,13 @@
     <ClInclude Include="Globals.h" />
     <ClInclude Include="JobCounter.h" />
     <ClInclude Include="JobCounterFD.h" />
-    <ClInclude Include="JobData.h" />
-    <ClInclude Include="JobDataFD.h" />
+    <ClInclude Include="Job.h" />
     <ClInclude Include="JobFD.h" />
+    <ClInclude Include="GenericJobFD.h" />
     <ClInclude Include="JobFunction.h" />
     <ClInclude Include="JobQueue.h" />
     <ClInclude Include="Game.h" />
-    <ClInclude Include="Job.h" />
+    <ClInclude Include="GenericJob.h" />
     <ClInclude Include="WorkerThread.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

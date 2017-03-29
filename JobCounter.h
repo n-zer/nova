@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Job.h"
+#include "GenericJob.h"
 #include "JobFunction.h"
-#include "JobDataFD.h"
+#include "JobFD.h"
 
 class JobCounter {
 public:

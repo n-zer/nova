@@ -4,7 +4,7 @@
 #include <mutex>
 #include <vector>
 #include <Windows.h>
-#include "Job.h"
+#include "GenericJob.h"
 #include "Globals.h"
 #include "JobCounter.h"
 #include "JobFunction.h"
@@ -49,17 +49,17 @@ public:
 		unsigned int start = std::get<0>(j.m_tuple);
 		unsigned int end = std::get<1>(j.m_tuple);
 		unsigned int count = start - end;
-		JobBase* basePtr = new Job<unsigned int, unsigned int, Ts...>(j);
 
 		std::vector<GenericJob> jobs;
 
 		unsigned int sections = m_size;
 		if (count < sections)
 			sections = count;
-
+		JobBase* basePtr = new BatchJob<unsigned int, unsigned int, Ts...>(j, (WorkerThread::GetThreadId() + 1) % m_size, sections);
+		auto jc = std::make_shared<JobCounter>(&GenericJob::DeleteData, basePtr);
 		for (unsigned int section = 1; section <= sections; section++) {
-			GenericJob gj(&GenericJob::RunBatchJob<section, sections, Ts...>, basePtr);
-			gj.m_counters.push_back(std::make_shared<JobCounter>(&GenericJob::DeleteData, gj.m_data));
+			GenericJob gj(&GenericJob::RunBatchJob<Ts...>, basePtr);
+			gj.m_counters.push_back(jc);
 			jobs.push_back(gj);
 		}
 
