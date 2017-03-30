@@ -15,7 +15,7 @@ vector<unsigned int> printTest;
 
 void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
 	printf((std::to_string(number + fl + c).c_str()));
-	JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
+	//JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
 }
 
 //void PrintStuff(JobDataBase* data) {
@@ -80,6 +80,14 @@ void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, in
 }
 
 
+struct Test {
+	int two = 2;
+	void TestFunction(int otherTwo) {
+		two = otherTwo;
+	}
+};
+
+
 
 // --------------------------------------------------------
 // Entry point for a graphical (non-console) Windows application
@@ -125,7 +133,7 @@ int WINAPI WinMain(
 
 #ifdef _DEBUG
 	//set number of threads
-	unsigned int threadCount = 1;
+	unsigned int threadCount = 2;
 #else
 	unsigned int threadCount = std::thread::hardware_concurrency();
 #endif
@@ -135,6 +143,9 @@ int WINAPI WinMain(
 
 	//create job queues
 	JobQueuePool::InitPool(threadCount);	
+	Test jobTest;
+	MemberJob<Test, int> testJob(&Test::TestFunction, &jobTest, 0);
+
 	JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
 	//QueuePrintJob(nullptr);
 	//push initialization logic to the queues

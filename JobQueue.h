@@ -55,7 +55,7 @@ public:
 		unsigned int sections = m_size;
 		if (count < sections)
 			sections = count;
-		JobBase* basePtr = new BatchJob<unsigned int, unsigned int, Ts...>(j, (WorkerThread::GetThreadId() + 1) % m_size, sections);
+		JobBase* basePtr = new BatchWrapper<Job<unsigned int, unsigned int, Ts...>>(j, (WorkerThread::GetThreadId() + 1) % m_size, sections);
 		auto jc = std::make_shared<JobCounter>(&GenericJob::DeleteData, basePtr);
 		for (unsigned int section = 1; section <= sections; section++) {
 			GenericJob gj(&GenericJob::RunBatchJob<Ts...>, basePtr);
