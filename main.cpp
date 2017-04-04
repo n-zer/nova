@@ -11,42 +11,18 @@
 #include "JobCounter.h"
 #include "WorkerThread.h"
 
-vector<unsigned int> printTest;
 
 void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
 	printf((std::to_string(number + fl + c).c_str()));
 	//JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
 }
 
-//void PrintStuff(JobDataBase* data) {
-//	unsigned int num = 0;
-//	for (unsigned int c = 0; c < 10000000; c++)
-//		num++;
-//	printf(std::to_string(num).c_str());
-//	JobQueuePool::PushJob(GenericJob{ &PrintStuff , nullptr });
-//}
-//
-//void PrintStuffBatch(unsigned int start, unsigned int count) {
-//	for (unsigned int c = start; c < start + count; c++) {
-//		for (unsigned int n = 0; n < 100000000; n++)
-//			printTest[c]++;
-//		printf((std::to_string(printTest[c]) + "\n").c_str());
-//	}
-//}
-//
-//void QueuePrintJob(JobDataBase* data) {
-//	PrintData* pd = new PrintData{};
-//	BatchJobData pJobData(0, printTest.size(), pd);
-//	GenericJob batchJob = { PrintStuffBatch, &pJobData };
-//	std::shared_ptr<JobCounter> jc = std::make_shared<JobCounter>(GenericJob{ QueuePrintJob,nullptr });
-//	batchJob.m_counters.push_back(jc);
-//	JobQueuePool::PushJobAsBatch(batchJob);
-//	int test = 0;
-//}
-//
-//void Test(int number, int otherNumber, float decimalNumber) {
-//	printf(std::to_string(number + otherNumber + decimalNumber).c_str());
-//}
+struct Test {
+	int two = 2;
+	void TestFunction(int otherTwo) {
+		two = otherTwo;
+	}
+};
 
 
 void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, int windowColumns)
@@ -80,14 +56,6 @@ void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, in
 }
 
 
-struct Test {
-	int two = 2;
-	void TestFunction(int otherTwo) {
-		two = otherTwo;
-	}
-};
-
-
 
 // --------------------------------------------------------
 // Entry point for a graphical (non-console) Windows application
@@ -106,54 +74,26 @@ int WINAPI WinMain(
 #endif
 	srand(time(NULL));
 
-	// Create the Game object using
-	// the app handle we got from WinMain
-	//Game dxGame(hInstance);
 
-	// Result variable for function calls below
-	//HRESULT hr = S_OK;
 	CreateConsoleWindow(500, 120, 32, 120);
-	// Attempt to create the window for our program, and
-	// exit early if something failed
-	//hr = dxGame.InitWindow();
-	//if (FAILED(hr)) return hr;
 
-	// Attempt to initialize DirectX, and exit
-	// early if something failed
-	//hr = dxGame.InitDirectX();
-	//if (FAILED(hr)) return hr;
-
-	//SetCapture(hInstance);
-
-	// Begin the message and game loop, and then return
-	// whatever we get back once the game loop is over
-	//return dxGame.Run();
-
-	auto tup = std::make_tuple(5, 6, 4.0f);
 
 #ifdef _DEBUG
 	//set number of threads
-	unsigned int threadCount = 2;
+	unsigned int threadCount = 1;
 #else
 	unsigned int threadCount = std::thread::hardware_concurrency();
 #endif
 
-
-	printTest.resize(threadCount);
-
 	//create job queues
 	JobQueuePool::InitPool(threadCount);	
-	Test jobTest;
-	MemberJob<Test, int> testJob(&Test::TestFunction, &jobTest, 0);
-
-	JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
-	//QueuePrintJob(nullptr);
-	//push initialization logic to the queues
-	/*for (unsigned int c = 0; c < threadCount; c++) {
-		JobQueuePool::PushJob({ &PrintStuff });
-	}*/
-
 	
+	//push standalone job
+	JobQueuePool::PushJob(&TestTemplatedJobs, unsigned int(0), unsigned int(1000), 6.0f);
+
+	//push member job
+	Test test;
+	JobQueuePool::PushJob(MakeJob(&Test::TestFunction, test, 4)); //takes object to use as this pointer as second param
 
 	//create threads
 	vector<WorkerThread> threads;
@@ -162,8 +102,3 @@ int WINAPI WinMain(
 	//main thread works too
 	WorkerThread::JobLoop();
 }
-
-/*static float fRand(float min, float max) {
-float f = (float)rand() / RAND_MAX;
-return min + f * (max - min);
-}*/

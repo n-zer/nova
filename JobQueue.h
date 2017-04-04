@@ -14,13 +14,13 @@ class JobQueue {
 public:
 	JobQueue();
 	JobQueue(const JobQueue &);
-	deque<GenericJob> m_jobs;
+	deque<Envelope> m_jobs;
 
 	//Attempts to remove a job from the queue. Returns true if successful
-	bool PopJob(GenericJob &j);
+	bool PopJob(Envelope &j);
 
 	//Pushes a job to the queue
-	void PushJob(GenericJob j);
+	void PushJob(Envelope j);
 private:
 	mutex m_lock;
 };
@@ -28,16 +28,32 @@ private:
 class JobQueuePool {
 public:
 	template<typename ... Ts>
-	static void PushJob(Job<Ts...> & j) {
-		JobBase* basePtr = new Job<Ts...>(j);
-		PushJob(GenericJob(&GenericJob::RunJob<Ts...>, basePtr ));
+	static void PushJob(Ts... args) {
+		PushJob(MakeJob(args...));
+	}
+
+
+	template<typename Callable, typename ... Ts>
+	static void PushJob(SimpleJob<Callable, Ts...> && j) {
+		PushJob(j);
+	}
+
+	template<typename Callable, typename ... Ts>
+	static void PushJob(SimpleJob<Callable, Ts...> & j) {
+		void* basePtr = new SimpleJob<Callable, Ts...>(j);
+		Envelope env(&RunRunnable<SimpleJob<Callable, Ts...>>, basePtr);
+		env.AddSealedEnvelope({ { &DeleteRunnable<SimpleJob<Callable,Ts...>>,basePtr } });
+		PushJob(env);
 	}
 
 	//Pushes a job to the calling thread's neighbor's queue
-	static void PushJob(GenericJob& j);
+	static void PushJob(Envelope&& e);
+
+	//Pushes a job to the calling thread's neighbor's queue
+	static void PushJob(Envelope& e);
 
 	//Attempts to grab a job from the calling thread's queue. Returns true if successful
-	static bool PopJob(GenericJob &j);
+	static bool PopJob(Envelope &e);
 
 
 	//Takes a job with a given range (e.g. 5 - 786) and splits it into a number of jobs
