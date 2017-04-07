@@ -14,6 +14,7 @@
 
 void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
 	printf((std::to_string(number + fl + c).c_str()));
+	JobQueuePool::PushJob(&TestTemplatedJobs, unsigned int(0), unsigned int(1000), 6.0f);
 	//JobQueuePool::PushJobAsBatch(Job<unsigned int, unsigned int, float>(&TestTemplatedJobs, 0, 1000, 6.0f));
 }
 
@@ -89,11 +90,12 @@ int WINAPI WinMain(
 	JobQueuePool::InitPool(threadCount);	
 	
 	//push standalone job
-	JobQueuePool::PushJob(&TestTemplatedJobs, unsigned int(0), unsigned int(1000), 6.0f);
+	for (unsigned c = 0; c < threadCount; c++)
+		JobQueuePool::PushJob(&TestTemplatedJobs, unsigned int(0), unsigned int(1000), 6.0f);
 
 	//push member job
 	Test test;
-	JobQueuePool::PushJob(MakeJob(&Test::TestFunction, test, 4)); //takes object to use as this pointer as second param
+	JobQueuePool::PushJob(&Test::TestFunction, test, 4); //takes object to use as this pointer as second param
 
 	//create threads
 	vector<WorkerThread> threads;

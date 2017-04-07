@@ -22,7 +22,7 @@ public:
 	//Pushes a job to the queue
 	void PushJob(Envelope j);
 private:
-	mutex m_lock;
+	CRITICAL_SECTION m_lock;
 };
 
 class JobQueuePool {

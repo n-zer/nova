@@ -1,12 +1,14 @@
 #include "JobQueue.h"
 #include "WorkerThread.h"
 #include "Job.h"
+#include "CriticalLock.h"
 
 unsigned int JobQueuePool::m_size = 0;
 vector<JobQueue> JobQueuePool::m_queues;
 
 JobQueue::JobQueue()
 {
+	InitializeCriticalSection(&m_lock);
 }
 
 JobQueue::JobQueue(const JobQueue & other)
@@ -16,7 +18,7 @@ JobQueue::JobQueue(const JobQueue & other)
 
 bool JobQueue::PopJob(Envelope &e)
 {
-	lock_guard<mutex> lg(m_lock);
+	CriticalLock clock(m_lock);
 	if (m_jobs.size() > 0) {
 		e = m_jobs[0];
 		m_jobs.pop_front();
@@ -27,7 +29,7 @@ bool JobQueue::PopJob(Envelope &e)
 
 void JobQueue::PushJob(Envelope e)
 {
-	lock_guard<mutex> lg(m_lock);
+	CriticalLock clock(m_lock);
 	m_jobs.push_back(e);
 }
 

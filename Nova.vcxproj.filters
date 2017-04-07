@@ -77,5 +77,8 @@
     <ClInclude Include="JobFD.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CriticalLock.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
