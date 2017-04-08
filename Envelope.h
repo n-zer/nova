@@ -9,6 +9,12 @@ class Envelope {
 public:
 	Envelope(){}
 
+	template<typename Runnable>
+	Envelope(Runnable * runnable)
+		: m_runFunc(&Envelope::RunRunnable<Runnable>), m_runnable(runnable) {
+
+	}
+
 	Envelope(void(*runFunc)(void*), void * runnable)
 		: m_runFunc(runFunc), m_runnable(runnable) {
 
@@ -19,6 +25,16 @@ public:
 	}
 
 	void AddSealedEnvelope(SealedEnvelope se);
+
+	template <typename Runnable>
+	static void RunRunnable(void * runnable) {
+		(static_cast<Runnable*>(runnable))->operator()();
+	}
+
+	template <typename Runnable>
+	static void DeleteRunnable(void * runnable) {
+		delete static_cast<Runnable*>(runnable);
+	}
 
 private:
 	void(*m_runFunc)(void *);

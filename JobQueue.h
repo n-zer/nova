@@ -37,9 +37,9 @@ public:
 	//Queues a pre-built standalone job
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> & j) {
-		void* basePtr = new SimpleJob<Callable, Ts...>(j);
-		Envelope env(&RunRunnable<SimpleJob<Callable, Ts...>>, basePtr);
-		env.AddSealedEnvelope({ { &DeleteRunnable<SimpleJob<Callable,Ts...>>,basePtr } });
+		auto* basePtr = new SimpleJob<Callable, Ts...>(j);
+		Envelope env(basePtr);
+		env.AddSealedEnvelope({ { &Envelope::DeleteRunnable<SimpleJob<Callable,Ts...>>,basePtr } });
 		PushJob(env);
 	}
 
@@ -61,9 +61,9 @@ public:
 		std::vector<Envelope> jobs;
 
 		auto* basePtr = new BatchJob<Callable, Ts...>(j);
-		SealedEnvelope se({ &DeleteRunnable<BatchJob<Callable,Ts...>>,basePtr });
+		SealedEnvelope se({ &Envelope::DeleteRunnable<BatchJob<Callable,Ts...>>,basePtr });
 		for (unsigned int section = 1; section <= j.GetSections(); section++) {
-			Envelope gj(&RunRunnable<BatchJob<Callable, Ts...>>, basePtr);
+			Envelope gj(basePtr);
 			gj.AddSealedEnvelope(se);
 			jobs.push_back(gj);
 		}
