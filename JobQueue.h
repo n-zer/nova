@@ -27,17 +27,13 @@ private:
 
 class JobQueuePool {
 public:
-	template<typename ... Ts>
-	static void PushJob(Ts... args) {
-		PushJob(MakeJob(args...));
-	}
-
-
+	//Builds and queues a standalone job
 	template<typename Callable, typename ... Ts>
-	static void PushJob(SimpleJob<Callable, Ts...> && j) {
-		PushJob(j);
+	static void PushJob(Callable callable, Ts... args) {
+		PushJob(MakeJob(callable, args...));
 	}
 
+	//Queues a pre-built standalone job
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> & j) {
 		void* basePtr = new SimpleJob<Callable, Ts...>(j);
@@ -46,36 +42,28 @@ public:
 		PushJob(env);
 	}
 
-	//Pushes a job to the calling thread's neighbor's queue
-	static void PushJob(Envelope&& e);
+	//Queues a pre-built standalone job (rvalue)
+	template<typename Callable, typename ... Ts>
+	static void PushJob(SimpleJob<Callable, Ts...> && j) {
+		PushJob(j);
+	}
 
-	//Pushes a job to the calling thread's neighbor's queue
-	static void PushJob(Envelope& e);
+	//Builds and queues a batch job
+	template<typename Callable, typename ... Ts>
+	static void PushJobAsBatch(Callable callable, unsigned start, unsigned end, Ts... args) {
+		PushJobAsBatch(MakeBatchJob(callable, start, end, args...));
+	}
 
-	//Attempts to grab a job from the calling thread's queue. Returns true if successful
-	static bool PopJob(Envelope &e);
+	//Queues a pre-built batch job
+	template<typename Callable, typename ... Ts>
+	static void PushJobAsBatch(BatchJob<Callable, Ts...> & j) {
+		std::vector<Envelope> jobs;
 
-
-	//Takes a job with a given range (e.g. 5 - 786) and splits it into a number of jobs
-	//equal or less than the number of worker threads, with each resulting job having
-	//a contiguous portion of the initial range. Useful for implementing parallel_for-esque
-	//functionality.
-	template<typename ... Ts>
-	static void PushJobAsBatch(Job<unsigned int, unsigned int, Ts...> & j) {
-		unsigned int start = std::get<0>(j.m_tuple);
-		unsigned int end = std::get<1>(j.m_tuple);
-		unsigned int count = start - end;
-
-		std::vector<GenericJob> jobs;
-
-		unsigned int sections = m_size;
-		if (count < sections)
-			sections = count;
-		JobBase* basePtr = new BatchWrapper<Job<unsigned int, unsigned int, Ts...>>(j, (WorkerThread::GetThreadId() + 1) % m_size, sections);
-		auto jc = std::make_shared<JobCounter>(&GenericJob::DeleteData, basePtr);
-		for (unsigned int section = 1; section <= sections; section++) {
-			GenericJob gj(&GenericJob::RunBatchJob<Ts...>, basePtr);
-			gj.m_counters.push_back(jc);
+		auto* basePtr = new BatchJob<Callable, Ts...>(j);
+		SealedEnvelope se({ &DeleteRunnable<BatchJob<Callable,Ts...>>,basePtr });
+		for (unsigned int section = 1; section <= j.GetSections(); section++) {
+			Envelope gj(&RunRunnable<BatchJob<Callable, Ts...>>, basePtr);
+			gj.AddSealedEnvelope(se);
 			jobs.push_back(gj);
 		}
 
@@ -84,6 +72,21 @@ public:
 			m_queues[(id + c) % m_size].PushJob(jobs[c]);
 		}
 	}
+
+	//Queues a pre-built batch job (rvalue)
+	template<typename Callable, typename ... Ts>
+	static void PushJobAsBatch(BatchJob<Callable, Ts...> && j) {
+		PushJobAsBatch(j);
+	}
+
+	//Pushes an envelope to the calling thread's neighbor's queue
+	static void PushJob(Envelope&& e);
+
+	//Pushes an envelope to the calling thread's neighbor's queue
+	static void PushJob(Envelope& e);
+
+	//Attempts to grab an envelope from the calling thread's queue. Returns true if successful
+	static bool PopJob(Envelope &e);
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.

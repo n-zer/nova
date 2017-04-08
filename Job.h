@@ -39,16 +39,15 @@ struct MemberJob : TemplatedJobBase<Ts...> {
 	}
 };
 
-template <typename T>
-struct BatchWrapper : JobBase {
-	T job;
-	unsigned int startThread;
-	unsigned int sections;
-	BatchWrapper(T obj, unsigned int start, unsigned int sections) : job(obj), startThread(start), sections(sections) {}
-};
+//template <typename T>
+//struct BatchWrapper : JobBase {
+//	T job;
+//	unsigned int startThread;
+//	unsigned int sections;
+//	BatchWrapper(T obj, unsigned int start, unsigned int sections) : job(obj), startThread(start), sections(sections) {}
+//};
 
 #pragma endregion
-
 
 template <typename Callable, typename ... Ts>
 class SimpleJob {
@@ -68,34 +67,65 @@ private:
 };
 
 template <typename Callable, typename ... Ts>
-class SimpleJob<Callable, unsigned, unsigned, Ts...> {
+class BatchJob {
 public:
-	SimpleJob(Callable callable, unsigned start, unsigned end, Ts... args)
-		: m_callable(callable), m_start(start), m_end(end), m_tuple(args...) {
+	BatchJob(Callable callable, unsigned start, unsigned end, Ts... args)
+		: m_callable(callable), m_tuple(start, end, args...) {
+		unsigned int count = end - start;
 
+		m_sections = WorkerThread::GetThreadCount();
+		m_start = (WorkerThread::GetThreadId() + 1) % m_sections;
+		if (count < m_sections)
+			m_sections = count;
 	}
-
-	unsigned Start() { return m_start; }
-	unsigned End() { return m_end; }
 
 	void operator () () {
-		apply(*this, m_tuple);
+		std::tuple<unsigned, unsigned, Ts...> params = m_tuple;
+		unsigned int start = std::get<0>(params);
+		unsigned int end = std::get<1>(params);
+		unsigned int count = end - start;
+		unsigned int section = (WorkerThread::GetThreadId() + WorkerThread::GetThreadCount() - m_start) % WorkerThread::GetThreadCount() + 1;
+		unsigned int newStart = static_cast<unsigned int>(start + floorf(count*(section - 1) / m_sections));
+		end = static_cast<unsigned int>(start + floorf(count*section / m_sections));
+
+		std::get<0>(params) = newStart;
+		std::get<1>(params) = end;
+		apply(m_callable, params);
 	}
 
-	void operator() (Ts... args) {
-		this->operator()(m_start, m_end, args...);
+	unsigned GetSections() {
+		return m_sections;
 	}
 
-	void operator() (unsigned start, unsigned end, Ts... args) {
-		m_callable(start, end, args...);
-	}
 
 private:
 	unsigned m_start;
-	unsigned m_end;
+	unsigned m_sections;
 	Callable m_callable;
-	std::tuple<Ts...> m_tuple;
+	std::tuple<unsigned, unsigned, Ts...> m_tuple;
 };
+
+
+//template <typename Batchable>
+//struct BatchWrapper {
+//	Batchable m_callable;
+//	unsigned int startThread;
+//	unsigned int sections;
+//	BatchWrapper(Batchable callable, unsigned int start, unsigned int sections) : m_callable(callable), startThread(start), sections(sections) {}
+//	void operator () () {
+//		decltype(m_callable.Params()) params = m_callable.Params();
+//		unsigned int start = std::get<0>(params);
+//		unsigned int end = std::get<1>(params);
+//		unsigned int count = end - start;
+//		unsigned int section = (WorkerThread::GetThreadId() + WorkerThread::GetThreadCount() - startThread) % WorkerThread::GetThreadCount() + 1;
+//		unsigned int newStart = static_cast<unsigned int>(start + floorf(count*(section - 1) / sections));
+//		end = static_cast<unsigned int>(start + floorf(count*section / sections));
+//
+//		std::get<0>(params) = newStart;
+//		std::get<1>(params) = end;
+//		apply(m_callable, params);
+//	}
+//};
 
 
 template <typename Obj, typename ... Ts>
@@ -121,7 +151,18 @@ SimpleJob<Callable, Ts...> MakeJob(Callable callable, Ts... args) {
 	return SimpleJob<Callable, Ts...>(callable, args...);
 }
 
+template <typename Callable, typename ... Ts>
+BatchJob<Callable, Ts...> MakeBatchJob(Callable callable, unsigned start, unsigned end, Ts... args) {
+	//To-do, insert SFINAE check for () operator on callable
+	return BatchJob<Callable, Ts...>(callable, start, end, args...);
+}
+
 template <typename Obj, typename ... Ts>
 SimpleJob<MemberFunctionWrapper<Obj, Ts...>, Ts...> MakeJob(void(Obj::*func)(Ts...), Obj obj, Ts... args) {
 	return SimpleJob<MemberFunctionWrapper<Obj, Ts...>, Ts...>({ obj,func }, args...);
+}
+
+template <typename Obj, typename ... Ts>
+BatchJob<MemberFunctionWrapper<Obj, Ts...>, Ts...> MakeBatchJob(void(Obj::*func)(Ts...), Obj obj, unsigned start, unsigned end, Ts... args) {
+	return BatchJob<MemberFunctionWrapper<Obj, unsigned, unsigned, Ts...>, Ts...>({ obj,func }, start, end, args...);
 }
