@@ -49,3 +49,26 @@ template <typename Runnable>
 void DeleteRunnable(void * runnable) {
 	delete static_cast<Runnable*>(runnable);
 }
+
+//Starts the job system. Pass in a callable object and some parameters.
+template <typename Callable, typename ... Ts>
+void Init(Callable callable, Ts ... args) {
+#ifdef _DEBUG
+	//set number of threads
+	unsigned int threadCount = 1;
+#else
+	unsigned int threadCount = std::thread::hardware_concurrency();
+#endif
+
+	//create job queues
+	JobQueuePool::InitPool(threadCount);
+
+	//create threads
+	vector<WorkerThread> threads;
+	threads.resize(threadCount - 1);
+
+	JobQueuePool::PushJob(callable, args...);
+
+	//main thread works too
+	WorkerThread::JobLoop();
+}

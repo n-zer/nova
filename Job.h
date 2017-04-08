@@ -1,53 +1,7 @@
 #pragma once
 
-#include <memory>
 #include <vector>
 #include <tuple>
-
-#include "JobFD.h"
-
-#pragma region Old Job Classes
-
-struct JobBase {
-	JobBase() {};
-	virtual ~JobBase() {};
-};
-
-template<typename ... Ts>
-struct TemplatedJobBase : JobBase{
-	std::tuple<Ts...> m_tuple;
-	TemplatedJobBase(Ts... args) : m_tuple(args...) {}
-	void virtual operator () (Ts... args) = 0;
-};
-
-template <typename ... Ts>
-struct Job : TemplatedJobBase<Ts...> {
-	void(*m_func)(Ts...);
-	Job(void(*func)(Ts...), Ts... args) : TemplatedJobBase<Ts...>(args...), m_func(func) {}
-	void operator () (Ts... args) {
-		m_func(args...);
-	}
-};
-
-template <typename T, typename ... Ts>
-struct MemberJob : TemplatedJobBase<Ts...> {
-	void(T::*m_func)(Ts...);
-	T* m_obj;
-	MemberJob(void(T::*func)(Ts...), T* obj, Ts... args) : TemplatedJobBase<Ts...>(args...), m_func(func), m_obj(obj) {}
-	void operator () (Ts... args) {
-		((*m_obj).*m_func)(args...);
-	}
-};
-
-//template <typename T>
-//struct BatchWrapper : JobBase {
-//	T job;
-//	unsigned int startThread;
-//	unsigned int sections;
-//	BatchWrapper(T obj, unsigned int start, unsigned int sections) : job(obj), startThread(start), sections(sections) {}
-//};
-
-#pragma endregion
 
 template <typename Callable, typename ... Ts>
 class SimpleJob {
@@ -104,28 +58,6 @@ private:
 	Callable m_callable;
 	std::tuple<unsigned, unsigned, Ts...> m_tuple;
 };
-
-
-//template <typename Batchable>
-//struct BatchWrapper {
-//	Batchable m_callable;
-//	unsigned int startThread;
-//	unsigned int sections;
-//	BatchWrapper(Batchable callable, unsigned int start, unsigned int sections) : m_callable(callable), startThread(start), sections(sections) {}
-//	void operator () () {
-//		decltype(m_callable.Params()) params = m_callable.Params();
-//		unsigned int start = std::get<0>(params);
-//		unsigned int end = std::get<1>(params);
-//		unsigned int count = end - start;
-//		unsigned int section = (WorkerThread::GetThreadId() + WorkerThread::GetThreadCount() - startThread) % WorkerThread::GetThreadCount() + 1;
-//		unsigned int newStart = static_cast<unsigned int>(start + floorf(count*(section - 1) / sections));
-//		end = static_cast<unsigned int>(start + floorf(count*section / sections));
-//
-//		std::get<0>(params) = newStart;
-//		std::get<1>(params) = end;
-//		apply(m_callable, params);
-//	}
-//};
 
 
 template <typename Obj, typename ... Ts>

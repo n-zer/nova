@@ -1,7 +1,4 @@
 #include "JobQueue.h"
-#include "WorkerThread.h"
-#include "Job.h"
-#include "CriticalLock.h"
 
 unsigned int JobQueuePool::m_size = 0;
 vector<JobQueue> JobQueuePool::m_queues;
@@ -47,12 +44,12 @@ bool JobQueuePool::PopJob(Envelope &e) {
 }
 
 
-void JobQueuePool::CallJob(GenericJob j)
+void JobQueuePool::CallJob(Envelope e)
 {
 
 }
 
-void JobQueuePool::CallBatchJob(GenericJob j)
+void JobQueuePool::CallBatchJob(Envelope e)
 {
 
 }

@@ -18,35 +18,17 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DXCore.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Game.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="JobQueue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WorkerThread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="JobCounter.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Job.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="GenericJob.cpp">
+    <ClCompile Include="Envelope.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="DXCore.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Game.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="JobQueue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -56,28 +38,13 @@
     <ClInclude Include="Globals.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="JobCounter.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="JobFunction.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="JobCounterFD.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="GenericJob.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="GenericJobFD.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Job.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="JobFD.h">
+    <ClInclude Include="CriticalLock.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="CriticalLock.h">
+    <ClInclude Include="Envelope.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

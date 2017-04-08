@@ -1,19 +1,15 @@
-//#define NOMINMAX
-
 #include <Windows.h>
 #include <time.h>
 #include <thread>
 #include <iostream>
 #include <vector>
-#include "Game.h"
+#include <string>
 #include "JobQueue.h"
-#include "Job.h"
-#include "JobCounter.h"
-#include "WorkerThread.h"
 
 
 void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
 	printf((std::to_string(number + fl + c).c_str()));
+	JobQueuePool::PushJob(&TestTemplatedJobs, 0, 0, 0);
 }
 
 struct Test {
@@ -22,6 +18,18 @@ struct Test {
 		two = otherTwo;
 	}
 };
+
+void InitialJob() {
+	//push standalone job
+	JobQueuePool::PushJob(&TestTemplatedJobs, 0, 0, 0);
+
+	//push member job
+	Test test;
+	JobQueuePool::PushJob(&Test::TestFunction, test, 4); //takes object to use as this pointer as second param
+
+	//push batch job
+	JobQueuePool::PushJobAsBatch(MakeBatchJob(&TestTemplatedJobs, 0, 1000, 6.0f));
+}
 
 
 void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, int windowColumns)
@@ -76,28 +84,6 @@ int WINAPI WinMain(
 
 	CreateConsoleWindow(500, 120, 32, 120);
 
-
-#ifdef _DEBUG
-	//set number of threads
-	unsigned int threadCount = 2;
-#else
-	unsigned int threadCount = std::thread::hardware_concurrency();
-#endif
-
-	//create job queues
-	JobQueuePool::InitPool(threadCount);	
-
-	//create threads
-	vector<WorkerThread> threads;
-	threads.resize(threadCount - 1);
-	
-	//push standalone job
-	JobQueuePool::PushJobAsBatch(MakeBatchJob(&TestTemplatedJobs, unsigned int(0), unsigned int(1000), 6.0f));
-
-	//push member job
-	Test test;
-	JobQueuePool::PushJob(&Test::TestFunction, test, 4); //takes object to use as this pointer as second param
-
-	//main thread works too
-	WorkerThread::JobLoop();
+	//Start the job system
+	Init(&InitialJob);
 }

@@ -1,5 +1,4 @@
-#include "GenericJob.h"
-#include "JobCounter.h"
+#include "Envelope.h"
 
 void Envelope::AddSealedEnvelope(SealedEnvelope se)
 {

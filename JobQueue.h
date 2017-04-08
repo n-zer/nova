@@ -1,13 +1,13 @@
 #pragma once
 
 #include <deque>
-#include <mutex>
 #include <vector>
 #include <Windows.h>
-#include "GenericJob.h"
+#include "Envelope.h"
 #include "Globals.h"
-#include "JobCounter.h"
-#include "JobFunction.h"
+#include "WorkerThread.h"
+#include "Job.h"
+#include "CriticalLock.h"
 
 using namespace std;
 class JobQueue {
@@ -90,11 +90,11 @@ public:
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.
-	static void CallJob(GenericJob j);
+	static void CallJob(Envelope e);
 
 	//Creates a child batch job. Pushes the new jobs then suspends the current fiber. When all the
 	//resulting jobs are completed the current thread will switch back to the suspended fiber.
-	static void CallBatchJob(GenericJob j);
+	static void CallBatchJob(Envelope e);
 
 	static void InitPool(unsigned int numCores);
 
