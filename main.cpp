@@ -21,7 +21,8 @@ struct Test {
 
 void InitialJob() {
 	//push standalone job
-	JobQueuePool::PushJob(&TestTemplatedJobs, 0, 0, 0);
+	for (unsigned c = 0; c < 1000000; c++)
+		JobQueuePool::PushJob(&TestTemplatedJobs, 0, 0, 0);
 
 	//push member job
 	Test test;

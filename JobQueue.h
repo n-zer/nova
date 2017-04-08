@@ -17,12 +17,13 @@ public:
 	deque<Envelope> m_jobs;
 
 	//Attempts to remove a job from the queue. Returns true if successful
-	bool PopJob(Envelope &j);
+	void PopJob(Envelope &j);
 
 	//Pushes a job to the queue
 	void PushJob(Envelope j);
 private:
 	CRITICAL_SECTION m_lock;
+	CONDITION_VARIABLE m_cv;
 };
 
 class JobQueuePool {
@@ -86,7 +87,7 @@ public:
 	static void PushJob(Envelope& e);
 
 	//Attempts to grab an envelope from the calling thread's queue. Returns true if successful
-	static bool PopJob(Envelope &e);
+	static void PopJob(Envelope &e);
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.

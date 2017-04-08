@@ -12,9 +12,8 @@ void WorkerThread::JobLoop() {
 	
 	while (true) {
 		Envelope e;
-		if (JobQueuePool::PopJob(e)) {
-			e();
-		}
+		JobQueuePool::PopJob(e);
+		e();
 	}
 }
 
