@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <functional>
 #include <utility>
+#include <random>
 
 
 template <typename T>
@@ -34,6 +35,8 @@ void Init(Callable callable, Ts ... args) {
 #else
 	unsigned int threadCount = std::thread::hardware_concurrency();
 #endif
+
+	srand(time(NULL));
 
 	//create job queues
 	JobQueuePool::InitPool(threadCount);

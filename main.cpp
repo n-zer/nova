@@ -9,23 +9,35 @@
 #include <ppl.h>
 #include "JobQueue.h"
 
-std::chrono::time_point<std::chrono::steady_clock> start;
-long long jobTime;
+void Job4(unsigned number, unsigned c, float fl);
 
-unsigned testNum = 0;
-
-void ParallelForSingleIteration(unsigned index) {
-	printf((std::to_string(index)).c_str());
+void Job3(unsigned int number, unsigned int c, float fl) {
+	printf(((std::to_string(WorkerThread::GetThreadId()) + " - " + std::to_string(3) + "\n").c_str()));
+	JobQueuePool::PushJobAsBatch(MakeBatchJob(&Job4, 0, 1000, 0));
 }
 
-void ParallelForTest(unsigned start, unsigned end) {
-	for (unsigned c = start; c < end; c++)
-		ParallelForSingleIteration(c);
+void Job2(unsigned int number, unsigned int c, float fl) {
+	printf(((std::to_string(WorkerThread::GetThreadId()) + " - " + std::to_string(2) + "\n").c_str()));
+	JobQueuePool::PushJob(&Job3, 0, 0, 0);
 }
 
-void TestTemplatedJobs(unsigned int number, unsigned int c, float fl) {
-	printf(((std::to_string(number + fl + c)+"\n").c_str()));
-	//JobQueuePool::PushJob(&TestTemplatedJobs, 0, 0, 0);
+void Job1(unsigned int number, unsigned int c, float fl) {
+	printf(((std::to_string(WorkerThread::GetThreadId())+" - "+std::to_string(1)+"\n").c_str()));
+	JobQueuePool::PushJobs(MakeJob(&Job2, 0, 0, 0), MakeJob(&Job3,0,0,0));
+}
+
+float floatRand() {
+	static thread_local std::mt19937 generator;
+	std::uniform_real_distribution<float> distribution(0, 1);
+	return distribution(generator);
+}
+
+void Job4(unsigned number, unsigned c, float fl) {
+	printf(((std::to_string(WorkerThread::GetThreadId()) + " - " + std::to_string(4) + "\n").c_str()));
+
+	float roll = floatRand();
+	if (roll > .66f)
+		JobQueuePool::PushJob(&Job1, 0, 0, 0);
 }
 
 struct Test {
@@ -40,15 +52,14 @@ Test test;
 void InitialJob() {
 	
 	JobQueuePool::PushJobs(
-		MakeBatchJob(&TestTemplatedJobs, 0, 1000, 6),
-		MakeJob(&TestTemplatedJobs, 0, 0, 0),
-		MakeJob(&TestTemplatedJobs, 1, 0, 0),
-		MakeJob(&TestTemplatedJobs, 2, 0, 0),
-		MakeJob(&TestTemplatedJobs, 3, 0, 0),
-		MakeJob(&TestTemplatedJobs, 4, 0, 0),
-		MakeJob(&TestTemplatedJobs, 5, 0, 0),
-		MakeJob(&TestTemplatedJobs, 6, 0, 0),
-		MakeJob(&TestTemplatedJobs, 7, 0, 0)
+		MakeJob(&Job1, 0, 0, 0),
+		MakeJob(&Job1, 1, 0, 0),
+		MakeJob(&Job1, 2, 0, 0),
+		MakeJob(&Job1, 3, 0, 0),
+		MakeJob(&Job1, 4, 0, 0),
+		MakeJob(&Job1, 5, 0, 0),
+		MakeJob(&Job1, 6, 0, 0),
+		MakeJob(&Job1, 7, 0, 0)
 	);
 	//push standalone job
 	//for (unsigned c = 0; c < 100000; c++)

@@ -16,7 +16,7 @@ public:
 	JobQueue(const JobQueue &);
 	deque<Envelope> m_jobs;
 
-	//Attempts to remove a job from the queue. Returns true if successful
+	//Attempts to remove a job from the queue
 	void PopJob(Envelope &j);
 
 	//Pushes a job to the queue
@@ -31,37 +31,40 @@ public:
 	//Builds and queues a standalone job
 	template<typename Callable, typename ... Ts>
 	static void PushJob(Callable callable, Ts... args) {
-		PushJob(MakeJob(callable, args...));
+		//PushJob(MakeJob(callable, args...));
+		callable(args...);
 	}
 
 	//Queues a pre-built standalone job
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> & j) {
-		auto* basePtr = new SimpleJob<Callable, Ts...>(j);
+		/*auto* basePtr = new SimpleJob<Callable, Ts...>(j);
 		Envelope env(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Ts...>>, basePtr);
-		PushJob(env);
+		PushJob(env);*/
+		j();
 	}
 
 	//Queues a pre-built standalone job with a custom sealed envelope
-	template<typename Callable, typename ... Ts>
+	/*template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> & j, SealedEnvelope next) {
 		auto* basePtr = new SimpleJob<Callable, Ts...>(j);
 		Envelope env(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Ts...>>, basePtr);
 		env.AddSealedEnvelope(next);
 		PushJob(env);
-	}
+	}*/
 
 	//Queues a pre-built standalone job (rvalue)
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> && j) {
-		PushJob(j);
+		//PushJob(j);
+		j();
 	}
 
 	//Queues a pre-built standalone job (rvalue) with a custom sealed envelope
-	template<typename Callable, typename ... Ts>
+	/*template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> && j, SealedEnvelope next) {
 		PushJob(j, next);
-	}
+	}*/
 
 	//Builds and queues a batch job
 	template<typename Callable, typename ... Ts>
@@ -153,11 +156,11 @@ public:
 	//Pushes an envelope to the calling thread's neighbor's queue
 	static void PushJob(Envelope& e);
 
-	//Pushes a vector of envelopes across the pool
-	static void PushJobs(std::vector<Envelope> & envs);
-
 	//Attempts to grab an envelope from the calling thread's queue. Returns true if successful
 	static void PopJob(Envelope &e);
+
+	//Pushes a vector of envelopes across the pool
+	static void PushJobs(std::vector<Envelope> & envs);
 
 	//Creates a child job. Pushes the new job then suspends the current fiber. When the
 	//child job is completed the current thread will switch back to the suspended fiber.

@@ -41,14 +41,14 @@ void JobQueuePool::PushJob(Envelope&& e) {
 
 //Take a job and push it to neighboring queue
 void JobQueuePool::PushJob(Envelope& e) {
-	m_queues[(WorkerThread::GetThreadId() + 1) % m_size].PushJob(e);
+	m_queues[WorkerThread::GetThreadId() % m_size].PushJob(e);
 }
 
 void JobQueuePool::PushJobs(std::vector<Envelope>& envs)
 {
 	unsigned id = WorkerThread::GetThreadId();
 	for (unsigned c = 0; c < envs.size(); c++)
-		m_queues[(id + c) % m_size].PushJob(envs[c]);
+		m_queues[(id + c + 1) % m_size].PushJob(envs[c]);
 }
 
 void JobQueuePool::PopJob(Envelope &e) {
