@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include "Job.h"
 
 class SealedEnvelope;
 
@@ -25,6 +26,7 @@ public:
 	}
 
 	void AddSealedEnvelope(SealedEnvelope se);
+	void AddSealedEnvelopes(std::vector<SealedEnvelope> ses);
 
 	template <typename Runnable>
 	static void RunRunnable(void * runnable) {
@@ -34,6 +36,13 @@ public:
 	template <typename Runnable>
 	static void DeleteRunnable(void * runnable) {
 		delete static_cast<Runnable*>(runnable);
+	}
+
+	template <typename Runnable>
+	static void RunAndDeleteRunnable(void * runnable) {
+		Runnable* rnb = static_cast<Runnable*>(runnable);
+		rnb->operator()();
+		delete rnb;
 	}
 
 private:
@@ -57,6 +66,11 @@ class SealedEnvelope {
 public:
 	SealedEnvelope(Envelope e)
 		: m_seal(std::make_shared<Seal>(e)) {
+	}
+	template<typename Callable, typename ... Ts>
+	SealedEnvelope(Callable callable, Ts ... args)
+		: m_seal(std::make_shared<Seal>(Envelope( &Envelope::RunAndDeleteRunnable<SimpleJob<Callable,Ts...>>, new SimpleJob<Callable, Ts...>(callable, args...) ))) {
+
 	}
 private:
 	std::shared_ptr<Seal> m_seal;
