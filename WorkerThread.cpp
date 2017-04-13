@@ -29,7 +29,7 @@ unsigned int WorkerThread::GetThreadCount()
 void WorkerThread::InitThread()
 {
 	{
-		lock_guard<mutex> lock(s_countLock);
+		std::lock_guard<std::mutex> lock(s_countLock);
 		s_thread_id = s_threadCount;
 		s_threadCount++;
 	}

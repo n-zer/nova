@@ -31,7 +31,7 @@ template <typename Callable, typename ... Ts>
 void Init(Callable callable, Ts ... args) {
 #ifdef _DEBUG
 	//set number of threads
-	unsigned int threadCount = 1;
+	unsigned int threadCount = 8;
 #else
 	unsigned int threadCount = std::thread::hardware_concurrency();
 #endif
@@ -42,8 +42,10 @@ void Init(Callable callable, Ts ... args) {
 	JobQueuePool::InitPool(threadCount);
 
 	//create threads
-	vector<WorkerThread> threads;
+	std::vector<WorkerThread> threads;
 	threads.resize(threadCount - 1);
+
+	ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
 	JobQueuePool::PushJob(callable, args...);
 

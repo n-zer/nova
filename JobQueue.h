@@ -9,12 +9,16 @@
 #include "Job.h"
 #include "CriticalLock.h"
 
-using namespace std;
+struct FiberInterlock {
+	LPVOID startingFiber;
+	LPVOID endingFiber;
+};
+
 class JobQueue {
 public:
 	JobQueue();
 	JobQueue(const JobQueue &);
-	deque<Envelope> m_jobs;
+	std::deque<Envelope> m_jobs;
 
 	//Attempts to remove a job from the queue
 	void PopJob(Envelope &j);
@@ -31,17 +35,15 @@ public:
 	//Builds and queues a standalone job
 	template<typename Callable, typename ... Ts>
 	static void PushJob(Callable callable, Ts... args) {
-		//PushJob(MakeJob(callable, args...));
-		callable(args...);
+		PushJob(MakeJob(callable, args...));
 	}
 
 	//Queues a pre-built standalone job
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> & j) {
-		/*auto* basePtr = new SimpleJob<Callable, Ts...>(j);
+		auto* basePtr = new SimpleJob<Callable, Ts...>(j);
 		Envelope env(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Ts...>>, basePtr);
-		PushJob(env);*/
-		j();
+		PushJob(env);
 	}
 
 	//Queues a pre-built standalone job with a custom sealed envelope
@@ -56,8 +58,7 @@ public:
 	//Queues a pre-built standalone job (rvalue)
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> && j) {
-		//PushJob(j);
-		j();
+		PushJob(j);
 	}
 
 	//Queues a pre-built standalone job (rvalue) with a custom sealed envelope
@@ -136,6 +137,26 @@ public:
 		envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
 	}
 
+	//Breaks a runnable off the parameter pack and recurses
+	template<typename Runnable, typename ... Runnables>
+	static void PackRunnableNoAlloc(std::vector<Envelope> & envs, Runnable & runnable, Runnables&... runnables) {
+		PackRunnableNoAlloc(envs, runnable);
+		PackRunnableNoAlloc(envs, runnables...);
+	}
+
+	//Loads a runnable into an envelope and pushes it to the given vector
+	template<typename Runnable>
+	static void PackRunnableNoAlloc(std::vector<Envelope> & envs, Runnable& runnable) {
+		envs.push_back({ &Envelope::RunRunnable<Runnable>, &runnable });
+	}
+
+	//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
+	template<typename Callable, typename ... Ts>
+	static void PackRunnableNoAlloc(std::vector<Envelope> & envs, BatchJob<Callable, Ts...> & j) {
+		std::vector<Envelope> splitEnvs = SplitBatchJobNoAlloc(j);
+		envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
+	}
+
 	//Converts a BatchJob into a vector of Envelopes
 	template<typename Callable, typename ... Ts>
 	static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Ts...> & j) {
@@ -145,6 +166,17 @@ public:
 		for (unsigned int section = 1; section <= j.GetSections(); section++) {
 			Envelope gj(basePtr);
 			gj.AddSealedEnvelope(se);
+			jobs.push_back(gj);
+		}
+		return jobs;
+	}
+
+	//Converts a BatchJob into a vector of Envelopes
+	template<typename Callable, typename ... Ts>
+	static std::vector<Envelope> SplitBatchJobNoAlloc(BatchJob<Callable, Ts...> & j) {
+		std::vector<Envelope> jobs;
+		for (unsigned int section = 1; section <= j.GetSections(); section++) {
+			Envelope gj(&j);
 			jobs.push_back(gj);
 		}
 		return jobs;
@@ -162,13 +194,17 @@ public:
 	//Pushes a vector of envelopes across the pool
 	static void PushJobs(std::vector<Envelope> & envs);
 
-	//Creates a child job. Pushes the new job then suspends the current fiber. When the
-	//child job is completed the current thread will switch back to the suspended fiber.
-	static void CallJob(Envelope e);
+	//Loads a set of runnables, queues them across the pool, then pauses the current call stack until they finish
+	template<typename ... Runnables>
+	static void CallJobs(Runnables&... runnables) {
+		std::vector<Envelope> envs;
+		PackRunnableNoAlloc(envs, runnables...);
+		CallJobs(envs);
+	}
 
-	//Creates a child batch job. Pushes the new jobs then suspends the current fiber. When all the
-	//resulting jobs are completed the current thread will switch back to the suspended fiber.
-	static void CallBatchJob(Envelope e);
+	static void CallJobs(std::vector<Envelope> & e);
+
+	static void FinishCalledJob(LPVOID);
 
 	static void InitPool(unsigned int numCores);
 
@@ -177,6 +213,8 @@ public:
 	//has been suspended.
 	static void QueueJobsAndEnterJobLoop(LPVOID jobPtr);
 private:
-	static vector<JobQueue> m_queues;
+	static std::vector<JobQueue> m_queues;
+	static thread_local std::vector<LPVOID> m_availableFibers;
 	static unsigned int m_size;
+	static thread_local std::vector<Envelope> * m_currentJobs;
 };
