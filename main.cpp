@@ -16,8 +16,8 @@ void Job2(bool yes) {
 	printf(((std::to_string(WorkerThread::GetThreadId())).c_str()));
 }
 
-void parallelForTest(unsigned index, bool test) {
-	printf(std::to_string(index).c_str());
+void parallelForTest(unsigned index, unsigned index2, bool test) {
+	printf((std::to_string(index) + " - " + std::to_string(index2) + "\n").c_str());
 }
 
 
@@ -42,7 +42,7 @@ void Job3() {
 			MakeJob(&Job2, true)
 		);
 
-		JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);
+		//JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);
 
 		printf("call finished");
 	}
@@ -59,8 +59,12 @@ Test test;
 
 void InitialJob() {
 	
-	JobQueuePool::PushJobs(MakeJob(&Job3), MakeJob(&Job3));
-	
+	//JobQueuePool::PushJobs(MakeJob(&Job3), MakeJob(&Job3));
+	JobQueuePool::PushJobAsBatch(MakeBatchJob(&parallelForTest, 0, 800, true));
+	JobQueuePool::PushJobAsBatch(MakeBatchJob(&parallelForTest, 0, 800, true));
+	JobQueuePool::PushJobAsBatch(MakeBatchJob(&parallelForTest, 0, 800, true));
+	//while (true)
+		//JobQueuePool::CallJobs(MakeBatchJob(&parallelForTest, 0, 500, true));
 }
 
 

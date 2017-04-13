@@ -2,6 +2,8 @@
 
 #include <vector>
 #include <tuple>
+#include <stdint.h>
+#include <Windows.h>
 
 template <typename Callable, typename ... Ts>
 class SimpleJob {
@@ -28,7 +30,6 @@ public:
 		unsigned int count = end - start;
 
 		m_sections = WorkerThread::GetThreadCount();
-		m_start = (WorkerThread::GetThreadId() + 1) % m_sections;
 		if (count < m_sections)
 			m_sections = count;
 	}
@@ -38,7 +39,7 @@ public:
 		unsigned int start = std::get<0>(params);
 		unsigned int end = std::get<1>(params);
 		unsigned int count = end - start;
-		unsigned int section = (WorkerThread::GetThreadId() + WorkerThread::GetThreadCount() - m_start) % WorkerThread::GetThreadCount() + 1;
+		unsigned int section = InterlockedIncrement(&m_currentSection);
 		unsigned int newStart = static_cast<unsigned int>(start + floorf(count*(section - 1) / m_sections));
 		end = static_cast<unsigned int>(start + floorf(count*section / m_sections));
 
@@ -53,7 +54,7 @@ public:
 
 
 private:
-	unsigned m_start;
+	alignas(32) uint32_t m_currentSection = 0;
 	unsigned m_sections;
 	Callable m_callable;
 	std::tuple<unsigned, unsigned, Ts...> m_tuple;

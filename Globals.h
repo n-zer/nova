@@ -31,7 +31,7 @@ template <typename Callable, typename ... Ts>
 void Init(Callable callable, Ts ... args) {
 #ifdef _DEBUG
 	//set number of threads
-	unsigned int threadCount = 1;
+	unsigned int threadCount = 2;
 #else
 	unsigned int threadCount = std::thread::hardware_concurrency();
 #endif
