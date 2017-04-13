@@ -1,4 +1,6 @@
 #include "JobQueue.h"
+#include "WorkerThread.h"
+#include "CriticalLock.h"
 
 unsigned int JobQueuePool::m_size = 0;
 std::vector<JobQueue> JobQueuePool::m_queues;

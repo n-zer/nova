@@ -5,9 +5,8 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <functional>
-#include <ppl.h>
 #include "JobQueue.h"
+#include "WorkerThread.h"
 
 void Job1(unsigned int number, unsigned int c, float fl) {
 	printf(((std::to_string(WorkerThread::GetThreadId())+" - "+std::to_string(1)+"\n").c_str()));
@@ -15,6 +14,10 @@ void Job1(unsigned int number, unsigned int c, float fl) {
 
 void Job2(bool yes) {
 	printf(((std::to_string(WorkerThread::GetThreadId())).c_str()));
+}
+
+void parallelForTest(unsigned index, bool test) {
+	printf(std::to_string(index).c_str());
 }
 
 
@@ -38,9 +41,9 @@ void Job3() {
 			MakeJob(&Job1, 0, 0, 0),
 			MakeJob(&Job2, true)
 		);
-		//push standalone job
-		//for (unsigned c = 0; c < 100000; c++)
-		//	JobQueuePool::PushJob(MakeJob(&TestTemplatedJobs, 0, 0, 0), se);
+
+		JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);
+
 		printf("call finished");
 	}
 }

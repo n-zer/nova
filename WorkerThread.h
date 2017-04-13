@@ -1,10 +1,7 @@
 #pragma once
 
 #include <thread>
-#include <Windows.h>
 #include <mutex>
-#include "Envelope.h"
-#include "JobQueue.h"
 
 class WorkerThread {
 public:

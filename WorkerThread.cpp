@@ -1,4 +1,7 @@
+#include <Windows.h>
 #include "WorkerThread.h"
+#include "Envelope.h"
+#include "JobQueue.h"
 
 thread_local unsigned int WorkerThread::s_thread_id = 0;
 unsigned int WorkerThread::s_threadCount = 1;

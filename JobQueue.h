@@ -5,14 +5,7 @@
 #include <Windows.h>
 #include "Envelope.h"
 #include "Globals.h"
-#include "WorkerThread.h"
 #include "Job.h"
-#include "CriticalLock.h"
-
-struct FiberInterlock {
-	LPVOID startingFiber;
-	LPVOID endingFiber;
-};
 
 class JobQueue {
 public:
@@ -212,6 +205,15 @@ public:
 	//This is used by the Call- functions to delay queueing of jobs until after the calling fiber
 	//has been suspended.
 	static void QueueJobsAndEnterJobLoop(LPVOID jobPtr);
+
+	template<typename Callable, typename ... Ts>
+	static void ParallelFor(Callable callable, unsigned start, unsigned end, Ts... args) {
+		CallJobs(MakeBatchJob([&](unsigned start, unsigned end, Ts... args) {
+			for (unsigned c = start; c < end; c++)
+				callable(c, args...);
+		}, start, end, args...));
+	}
+
 private:
 	static std::vector<JobQueue> m_queues;
 	static thread_local std::vector<LPVOID> m_availableFibers;
