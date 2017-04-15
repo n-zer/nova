@@ -14,13 +14,16 @@ public:
 	std::deque<Envelope> m_jobs;
 
 	//Attempts to remove a job from the queue
-	void PopJob(Envelope &j);
+	bool PopJob(Envelope &j);
+
+	bool SleepAndPopJob(Envelope &j);
 
 	//Pushes a job to the queue
 	void PushJob(Envelope j);
+	static void Init() { InitializeConditionVariable(&s_cv); }
 private:
 	CRITICAL_SECTION m_lock;
-	CONDITION_VARIABLE m_cv;
+	static CONDITION_VARIABLE s_cv;
 };
 
 class JobQueuePool {

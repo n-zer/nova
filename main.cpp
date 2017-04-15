@@ -59,10 +59,11 @@ Test test;
 
 void InitialJob() {
 	
-	//JobQueuePool::PushJobs(MakeJob(&Job3), MakeJob(&Job3));
-	JobQueuePool::PushJobAsBatch(MakeBatchJob(&parallelForTest, 0, 800, true));
-	JobQueuePool::PushJobAsBatch(MakeBatchJob(&parallelForTest, 0, 800, true));
-	JobQueuePool::PushJobAsBatch(MakeBatchJob(&parallelForTest, 0, 800, true));
+	JobQueuePool::PushJobs(MakeJob(&Job3), MakeJob(&Job3));
+	JobQueuePool::PushJob([]() {while (true) { std::this_thread::sleep_for(std::chrono::seconds(2)); }; });
+	//while (true)
+		//JobQueuePool::CallJobs(MakeBatchJob(&parallelForTest, 0, 800, true));
+
 	//while (true)
 		//JobQueuePool::CallJobs(MakeBatchJob(&parallelForTest, 0, 500, true));
 }

@@ -6,11 +6,11 @@ unsigned int JobQueuePool::m_size = 0;
 std::vector<JobQueue> JobQueuePool::m_queues;
 thread_local std::vector<LPVOID> JobQueuePool::m_availableFibers;
 thread_local std::vector<Envelope> * JobQueuePool::m_currentJobs;
+CONDITION_VARIABLE JobQueue::s_cv;
 
 JobQueue::JobQueue()
 {
 	InitializeCriticalSection(&m_lock);
-	InitializeConditionVariable(&m_cv);
 }
 
 JobQueue::JobQueue(const JobQueue & other)
@@ -18,16 +18,25 @@ JobQueue::JobQueue(const JobQueue & other)
 	m_jobs = other.m_jobs;
 }
 
-void JobQueue::PopJob(Envelope &e)
+bool JobQueue::PopJob(Envelope &e)
 {
 	CriticalLock clock(m_lock);
 
-	while (m_jobs.size() == 0) {
-		SleepConditionVariableCS(&m_cv, &m_lock, INFINITE);
+	if (m_jobs.size() > 0) {
+		e = m_jobs[0];
+		m_jobs.pop_front();
+		return true;
 	}
+	return false;
+}
 
-	e = m_jobs[0];
-	m_jobs.pop_front();
+bool JobQueue::SleepAndPopJob(Envelope & j)
+{
+	CriticalLock clock(m_lock);
+
+	SleepConditionVariableCS(&s_cv, &m_lock, INFINITE);
+
+	return PopJob(j);
 }
 
 void JobQueue::PushJob(Envelope e)
@@ -36,7 +45,7 @@ void JobQueue::PushJob(Envelope e)
 		CriticalLock clock(m_lock);
 		m_jobs.push_back(e);
 	}
-	WakeConditionVariable(&m_cv);
+	WakeConditionVariable(&s_cv);
 }
 
 void JobQueuePool::PushJob(Envelope&& e) {
@@ -56,7 +65,15 @@ void JobQueuePool::PushJobs(std::vector<Envelope>& envs)
 }
 
 void JobQueuePool::PopJob(Envelope &e) {
-	return m_queues[WorkerThread::GetThreadId()].PopJob(e);
+	if (m_queues[WorkerThread::GetThreadId() % m_size].PopJob(e))
+		return;
+	while (true) {
+		for (unsigned c = 1; c < m_size; c++)
+			if (m_queues[(WorkerThread::GetThreadId() + c) % m_size].PopJob(e))
+				return;
+		if (m_queues[WorkerThread::GetThreadId() % m_size].SleepAndPopJob(e))
+			return;
+	}
 }
 
 void JobQueuePool::QueueJobsAndEnterJobLoop(LPVOID jobPtr)
@@ -103,6 +120,7 @@ void JobQueuePool::FinishCalledJob(LPVOID oldFiber) {
 }
 
 void JobQueuePool::InitPool(unsigned int numCores) {
+	JobQueue::Init();
 	m_size = numCores;
 	m_queues.resize(numCores);
 }
