@@ -36,14 +36,15 @@ struct Test {
 Test test;
 
 void InitialJob() {
+	JobQueuePool::PushJob(&Job3);
 	while (true) {
-		JobQueuePool::CallJobs(
+		/*JobQueuePool::CallJobs(
 			MakeBatchJob(&Job1, 0, 500, 0)
 		);
 
-		JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);
+		JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);*/
 
-		printf("call finished");
+		//printf("call finished");
 	}
 }
 

@@ -17,7 +17,7 @@ void JobQueuePool::PushJobs(std::vector<Envelope>& envs)
 }
 
 void JobQueuePool::PopJob(Envelope &e) {
-	while(!m_queue.try_dequeue(e)){}
+	m_queue.wait_dequeue(e);
 }
 
 void JobQueuePool::QueueJobsAndEnterJobLoop(LPVOID jobPtr)
