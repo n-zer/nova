@@ -4,7 +4,7 @@
 
 moodycamel::BlockingConcurrentQueue<Envelope> JobQueuePool::m_queue;
 thread_local std::vector<LPVOID> JobQueuePool::m_availableFibers;
-thread_local std::vector<Envelope> * JobQueuePool::m_currentJobs;
+thread_local std::vector<Envelope> JobQueuePool::m_currentJobs;
 
 //Take a job and push it to neighboring queue
 void JobQueuePool::PushJob(Envelope& e) {
@@ -17,13 +17,13 @@ void JobQueuePool::PushJobs(std::vector<Envelope>& envs)
 }
 
 void JobQueuePool::PopJob(Envelope &e) {
-	m_queue.wait_dequeue(e);
+	while(!m_queue.try_dequeue(e)){}
 }
 
 void JobQueuePool::QueueJobsAndEnterJobLoop(LPVOID jobPtr)
 {
-	PushJobs(*m_currentJobs);
-	m_currentJobs->clear();
+	PushJobs(m_currentJobs);
+	m_currentJobs.clear();
 	WorkerThread::JobLoop();
 }
 
@@ -38,7 +38,7 @@ void JobQueuePool::CallJobs(std::vector<Envelope> & e)
 		for (unsigned c = 0; c < e.size(); c++)
 			e[c].AddSealedEnvelope(se);
 
-		m_currentJobs = &e;
+		e.swap(m_currentJobs);
 	}
 
 	LPVOID newFiber;
@@ -59,6 +59,6 @@ void JobQueuePool::FinishCalledJob(LPVOID oldFiber) {
 	SwitchToFiber(oldFiber);
 
 	//Re-use starts here
-	PushJobs(*m_currentJobs);
-	m_currentJobs->clear();
+	PushJobs(m_currentJobs);
+	m_currentJobs.clear();
 }

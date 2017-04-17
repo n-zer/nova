@@ -185,5 +185,5 @@ public:
 private:
 	static moodycamel::BlockingConcurrentQueue<Envelope> m_queue;
 	static thread_local std::vector<LPVOID> m_availableFibers;
-	static thread_local std::vector<Envelope> * m_currentJobs;
+	static thread_local std::vector<Envelope> m_currentJobs;
 };

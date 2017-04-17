@@ -17,33 +17,13 @@ void Job2(bool yes) {
 }
 
 void parallelForTest(unsigned index, bool test) {
-	//printf((std::to_string(index) + " - " + "\n").c_str());
+	printf((std::to_string(index) + " - " + "\n").c_str());
 }
 
 
 void Job3() {
-	while (true) {
-		JobQueuePool::CallJobs(
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true),
-			MakeJob(&Job1, 0, 0, 0),
-			MakeJob(&Job2, true)
-		);
-
-		printf("call finished");
-	}
+	SealedEnvelope se(&Job3);
+	JobQueuePool::PushJobAsBatch(MakeBatchJob(&Job1, 0, 500, 5), se);
 }
 
 struct Test {
@@ -56,22 +36,15 @@ struct Test {
 Test test;
 
 void InitialJob() {
-	
 	while (true) {
-		/*JobQueuePool::CallJobs(
+		JobQueuePool::CallJobs(
 			MakeBatchJob(&Job1, 0, 500, 0)
-		);*/
+		);
 
 		JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);
 
 		printf("call finished");
 	}
-	//JobQueuePool::PushJob([]() {while (true) { std::this_thread::sleep_for(std::chrono::seconds(2)); }; });
-	//while (true)
-		//JobQueuePool::CallJobs(MakeBatchJob(&parallelForTest, 0, 800, true));
-
-	//while (true)
-		//JobQueuePool::CallJobs(MakeBatchJob(&parallelForTest, 0, 500, true));
 }
 
 
