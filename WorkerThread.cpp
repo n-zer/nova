@@ -24,13 +24,11 @@ unsigned int WorkerThread::GetThreadId() {
 	return s_thread_id;
 }
 
-unsigned int WorkerThread::GetThreadCount()
-{
+unsigned int WorkerThread::GetThreadCount(){
 	return s_threadCount;
 }
 
-void WorkerThread::InitThread()
-{
+void WorkerThread::InitThread(){
 	{
 		std::lock_guard<std::mutex> lock(s_countLock);
 		s_thread_id = s_threadCount;

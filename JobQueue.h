@@ -6,25 +6,7 @@
 #include "Envelope.h"
 #include "Globals.h"
 #include "Job.h"
-
-class JobQueue {
-public:
-	JobQueue();
-	JobQueue(const JobQueue &);
-	std::deque<Envelope> m_jobs;
-
-	//Attempts to remove a job from the queue
-	bool PopJob(Envelope &j);
-
-	bool SleepAndPopJob(Envelope &j);
-
-	//Pushes a job to the queue
-	void PushJob(Envelope j);
-	static void Init() { InitializeConditionVariable(&s_cv); }
-private:
-	CRITICAL_SECTION m_lock;
-	static CONDITION_VARIABLE s_cv;
-};
+#include "blockingconcurrentqueue.h"
 
 class JobQueuePool {
 public:
@@ -42,26 +24,11 @@ public:
 		PushJob(env);
 	}
 
-	//Queues a pre-built standalone job with a custom sealed envelope
-	/*template<typename Callable, typename ... Ts>
-	static void PushJob(SimpleJob<Callable, Ts...> & j, SealedEnvelope next) {
-		auto* basePtr = new SimpleJob<Callable, Ts...>(j);
-		Envelope env(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Ts...>>, basePtr);
-		env.AddSealedEnvelope(next);
-		PushJob(env);
-	}*/
-
 	//Queues a pre-built standalone job (rvalue)
 	template<typename Callable, typename ... Ts>
 	static void PushJob(SimpleJob<Callable, Ts...> && j) {
 		PushJob(j);
 	}
-
-	//Queues a pre-built standalone job (rvalue) with a custom sealed envelope
-	/*template<typename Callable, typename ... Ts>
-	static void PushJob(SimpleJob<Callable, Ts...> && j, SealedEnvelope next) {
-		PushJob(j, next);
-	}*/
 
 	//Builds and queues a batch job
 	template<typename Callable, typename ... Ts>
@@ -202,8 +169,6 @@ public:
 
 	static void FinishCalledJob(LPVOID);
 
-	static void InitPool(unsigned int numCores);
-
 	//Starting point for a new fiber, queues a list of jobs and immediately enters the job loop.
 	//This is used by the Call- functions to delay queueing of jobs until after the calling fiber
 	//has been suspended.
@@ -218,8 +183,7 @@ public:
 	}
 
 private:
-	static std::vector<JobQueue> m_queues;
+	static moodycamel::BlockingConcurrentQueue<Envelope> m_queue;
 	static thread_local std::vector<LPVOID> m_availableFibers;
-	static unsigned int m_size;
 	static thread_local std::vector<Envelope> * m_currentJobs;
 };

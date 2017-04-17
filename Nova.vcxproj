@@ -124,6 +124,8 @@
     <ClCompile Include="WorkerThread.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="blockingconcurrentqueue.h" />
+    <ClInclude Include="concurrentqueue.h" />
     <ClInclude Include="CriticalLock.h" />
     <ClInclude Include="Globals.h" />
     <ClInclude Include="Job.h" />

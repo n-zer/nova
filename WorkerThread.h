@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <mutex>
+#include <Windows.h>
 
 class WorkerThread {
 public:

@@ -47,5 +47,11 @@
     <ClInclude Include="Envelope.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="blockingconcurrentqueue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="concurrentqueue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
