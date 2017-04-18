@@ -21,15 +21,15 @@ namespace Nova {
 
 		//Queues a pre-built standalone job
 		template<typename Callable, typename ... Ts>
-		static void Push(SimpleJob<Callable, Ts...> & j) {
-			auto* basePtr = new SimpleJob<Callable, Ts...>(j);
-			Envelope env(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Ts...>>, basePtr);
+		static void Push(internal::SimpleJob<Callable, Ts...> & j) {
+			auto* basePtr = new internal::SimpleJob<Callable, Ts...>(j);
+			Envelope env(&Envelope::RunAndDeleteRunnable<internal::SimpleJob<Callable, Ts...>>, basePtr);
 			PushEnvelopes(env);
 		}
 
 		//Queues a pre-built standalone job (rvalue)
 		template<typename Callable, typename ... Ts>
-		static void Push(SimpleJob<Callable, Ts...> && j) {
+		static void Push(internal::SimpleJob<Callable, Ts...> && j) {
 			Push(j);
 		}
 
@@ -41,13 +41,13 @@ namespace Nova {
 
 		//Queues a pre-built batch job
 		template<typename Callable, typename ... Ts>
-		static void Push(BatchJob<Callable, Ts...> & j) {
+		static void Push(internal::BatchJob<Callable, Ts...> & j) {
 			PushEnvelopes(SplitBatchJob(j));
 		}
 
 		//Queues a pre-built batch job with a custom sealed envelope
 		template<typename Callable, typename ... Ts>
-		static void Push(BatchJob<Callable, Ts...> & j, SealedEnvelope next) {
+		static void Push(internal::BatchJob<Callable, Ts...> & j, SealedEnvelope next) {
 			std::vector<Envelope> jobs = SplitBatchJob(j);
 
 			for (unsigned c = 0; c < jobs.size(); c++)
@@ -58,13 +58,13 @@ namespace Nova {
 
 		//Queues a pre-built batch job (rvalue)
 		template<typename Callable, typename ... Ts>
-		static void Push(BatchJob<Callable, Ts...> && j) {
+		static void Push(internal::BatchJob<Callable, Ts...> && j) {
 			Push(j);
 		}
 
 		//Queues a pre-built batch job (rvalue) with a custom sealed envelope
 		template<typename Callable, typename ... Ts>
-		static void Push(BatchJob<Callable, Ts...> && j, SealedEnvelope next) {
+		static void Push(internal::BatchJob<Callable, Ts...> && j, SealedEnvelope next) {
 			Push(j, next);
 		}
 
@@ -117,30 +117,6 @@ namespace Nova {
 			}, start, end, args...));
 		}
 
-		//Starts the job system. Pass in a callable object and some parameters.
-		template <typename Callable, typename ... Ts>
-		static void Init(Callable callable, Ts ... args) {
-#ifdef _DEBUG
-			//set number of threads
-			unsigned int threadCount = 8;
-#else
-			unsigned int threadCount = std::thread::hardware_concurrency();
-#endif
-
-			srand(static_cast<unsigned>(time(NULL)));
-
-			//create threads
-			std::vector<WorkerThread> threads;
-			threads.resize(threadCount - 1);
-
-			ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
-
-			Queue::Push(callable, args...);
-
-			//main thread works too
-			WorkerThread::JobLoop();
-		}
-
 	private:
 		//Breaks a runnable off the parameter pack and recurses
 		template<typename Runnable, typename ... Runnables>
@@ -158,7 +134,7 @@ namespace Nova {
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
 		template<typename Callable, typename ... Ts>
-		static void PackRunnable(std::vector<Envelope> & envs, BatchJob<Callable, Ts...> & j) {
+		static void PackRunnable(std::vector<Envelope> & envs, internal::BatchJob<Callable, Ts...> & j) {
 			std::vector<Envelope> splitEnvs = SplitBatchJob(j);
 			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
 		}
@@ -178,17 +154,17 @@ namespace Nova {
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
 		template<typename Callable, typename ... Ts>
-		static void PackRunnableNoAlloc(std::vector<Envelope> & envs, BatchJob<Callable, Ts...> & j) {
+		static void PackRunnableNoAlloc(std::vector<Envelope> & envs, internal::BatchJob<Callable, Ts...> & j) {
 			std::vector<Envelope> splitEnvs = SplitBatchJobNoAlloc(j);
 			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
 		}
 
 		//Converts a BatchJob into a vector of Envelopes
 		template<typename Callable, typename ... Ts>
-		static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Ts...> & j) {
+		static std::vector<Envelope> SplitBatchJob(internal::BatchJob<Callable, Ts...> & j) {
 			std::vector<Envelope> jobs;
-			auto* basePtr = new BatchJob<Callable, Ts...>(j);
-			SealedEnvelope se(Envelope(&Envelope::DeleteRunnable<BatchJob<Callable, Ts...>>, basePtr));
+			auto* basePtr = new internal::BatchJob<Callable, Ts...>(j);
+			SealedEnvelope se(Envelope(&Envelope::DeleteRunnable<internal::BatchJob<Callable, Ts...>>, basePtr));
 			for (unsigned int section = 1; section <= j.GetSections(); section++) {
 				Envelope gj(basePtr);
 				gj.AddSealedEnvelope(se);
@@ -199,7 +175,7 @@ namespace Nova {
 
 		//Converts a BatchJob into a vector of Envelopes
 		template<typename Callable, typename ... Ts>
-		static std::vector<Envelope> SplitBatchJobNoAlloc(BatchJob<Callable, Ts...> & j) {
+		static std::vector<Envelope> SplitBatchJobNoAlloc(internal::BatchJob<Callable, Ts...> & j) {
 			std::vector<Envelope> jobs;
 			for (unsigned int section = 1; section <= j.GetSections(); section++) {
 				Envelope gj(&j);

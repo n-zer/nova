@@ -59,7 +59,7 @@ namespace Nova {
 		}
 		template<typename Callable, typename ... Ts>
 		SealedEnvelope(Callable callable, Ts ... args)
-			: m_seal(std::make_shared<Seal>(Envelope(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Ts...>>, new SimpleJob<Callable, Ts...>(callable, args...)))) {
+			: m_seal(std::make_shared<Seal>(Envelope(&Envelope::RunAndDeleteRunnable<internal::SimpleJob<Callable, Ts...>>, new internal::SimpleJob<Callable, Ts...>(callable, args...)))) {
 
 		}
 	private:

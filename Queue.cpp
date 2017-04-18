@@ -24,7 +24,7 @@ namespace Nova {
 	{
 		PushEnvelopes(m_currentJobs);
 		m_currentJobs.clear();
-		WorkerThread::JobLoop();
+		internal::WorkerThread::JobLoop();
 	}
 
 	void Queue::Call(std::vector<Envelope> & e)
