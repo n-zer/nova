@@ -5,15 +5,14 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include "JobQueue.h"
-#include "WorkerThread.h"
+#include "Queue.h"
 
 void Job1(unsigned int number, unsigned int c, float fl) {
-	printf(((std::to_string(WorkerThread::GetThreadId())+" - "+std::to_string(1)+"\n").c_str()));
+	printf(((std::to_string(number)+" - "+std::to_string(c)+"\n").c_str()));
 }
 
 void Job2(bool yes) {
-	printf(((std::to_string(WorkerThread::GetThreadId())).c_str()));
+	printf(((std::to_string(0)).c_str()));
 }
 
 void parallelForTest(unsigned index, bool test) {
@@ -22,8 +21,8 @@ void parallelForTest(unsigned index, bool test) {
 
 
 void Job3() {
-	SealedEnvelope se(&Job3);
-	JobQueuePool::PushJobAsBatch(MakeBatchJob(&Job1, 0, 500, 5), se);
+	Nova::SealedEnvelope se(&Job3);
+	Nova::Queue::Push(Nova::MakeBatchJob(&Job1, 0, 500, 5.0f), se);
 }
 
 struct Test {
@@ -36,19 +35,18 @@ struct Test {
 Test test;
 
 void InitialJob() {
-	JobQueuePool::PushJob(&Job3);
-	while (true) {
-		/*JobQueuePool::CallJobs(
-			MakeBatchJob(&Job1, 0, 500, 0)
-		);
+	Nova::Queue::Push(&Job3);
 
-		JobQueuePool::ParallelFor(&parallelForTest, 0, 500, true);*/
+	Nova::Queue::PushBatch(&Job1, 0, 500, 5.0f);
 
-		//printf("call finished");
-	}
+	Nova::Queue::Call(
+		Nova::MakeBatchJob(&Job1, 0, 500, 0.0f)
+	);
+
+	Nova::Queue::ParallelFor(&parallelForTest, 0, 500, true);
 }
 
 
 int main() {
-	Init(&InitialJob);
+	Nova::Queue::Init(&InitialJob);
 }

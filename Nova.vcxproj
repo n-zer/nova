@@ -119,7 +119,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Envelope.cpp" />
-    <ClCompile Include="JobQueue.cpp" />
+    <ClCompile Include="Queue.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="WorkerThread.cpp" />
   </ItemGroup>
@@ -129,7 +129,7 @@
     <ClInclude Include="CriticalLock.h" />
     <ClInclude Include="Globals.h" />
     <ClInclude Include="Job.h" />
-    <ClInclude Include="JobQueue.h" />
+    <ClInclude Include="Queue.h" />
     <ClInclude Include="Envelope.h" />
     <ClInclude Include="WorkerThread.h" />
   </ItemGroup>
