@@ -1,7 +1,6 @@
 #include "Envelope.h"
 namespace Nova {
-
-	void Envelope::AddSealedEnvelope(SealedEnvelope se)
+	void Envelope::AddSealedEnvelopes(SealedEnvelope se)
 	{
 		m_sealedEnvelopes.push_back(se);
 	}

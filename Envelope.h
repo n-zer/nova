@@ -26,7 +26,7 @@ namespace Nova {
 			m_runFunc(m_runnable);
 		}
 
-		void AddSealedEnvelope(SealedEnvelope se);
+		void AddSealedEnvelopes(SealedEnvelope se);
 		void AddSealedEnvelopes(std::vector<SealedEnvelope> ses);
 
 		template <typename Runnable>

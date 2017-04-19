@@ -1,5 +1,4 @@
 #include "Queue.h"
-#include "CriticalLock.h"
 
 namespace Nova {
 	moodycamel::BlockingConcurrentQueue<Envelope> Queue::m_queue;
@@ -36,7 +35,7 @@ namespace Nova {
 			SealedEnvelope se(Envelope(&Envelope::RunRunnable<decltype(completionJob)>, &completionJob));
 
 			for (unsigned c = 0; c < e.size(); c++)
-				e[c].AddSealedEnvelope(se);
+				e[c].AddSealedEnvelopes(se);
 
 			e.swap(m_currentJobs);
 		}
