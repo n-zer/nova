@@ -7,10 +7,10 @@
 #include <type_traits>
 
 namespace Nova {
-	template <typename Callable, typename ... Ts>
+	template <typename Callable, typename ... Params>
 	class SimpleJob {
 	public:
-		SimpleJob(Callable callable, Ts... args)
+		SimpleJob(Callable callable, Params... args)
 			: m_callable(callable), m_tuple(args...) {
 
 		}
@@ -21,15 +21,15 @@ namespace Nova {
 
 	private:
 		Callable m_callable;
-		std::tuple<Ts...> m_tuple;
+		std::tuple<Params...> m_tuple;
 	};
 
 	typedef unsigned BatchIndex;
 
-	template <typename Callable, typename ... Ts>
+	template <typename Callable, typename ... Params>
 	class BatchJob {
 	public:
-		BatchJob(Callable callable, Ts... args)
+		BatchJob(Callable callable, Params... args)
 			: m_callable(callable), m_tuple(args...) {
 			unsigned int count = End() - Start();
 
@@ -39,7 +39,7 @@ namespace Nova {
 		}
 
 		void operator () () {
-			std::tuple<Ts...> params = m_tuple;
+			std::tuple<Params...> params = m_tuple;
 			BatchIndex start = Start();
 			BatchIndex end = End();
 			float count = static_cast<float>(end - start);
@@ -71,7 +71,7 @@ namespace Nova {
 		alignas(32) uint32_t m_currentSection = 0;
 		unsigned m_sections;
 		Callable m_callable;
-		std::tuple<Ts...> m_tuple;
+		std::tuple<Params...> m_tuple;
 
 		unsigned& Start() {
 			return Start(m_tuple);
@@ -88,13 +88,13 @@ namespace Nova {
 	};
 
 
-	template <typename Callable, typename ... Ts>
-	SimpleJob<Callable, Ts...> MakeJob(Callable callable, Ts... args) {
-		return SimpleJob<Callable, Ts...>(callable, args...);
+	template <typename Callable, typename ... Params>
+	SimpleJob<Callable, Params...> MakeJob(Callable callable, Params... args) {
+		return SimpleJob<Callable, Params...>(callable, args...);
 	}
 
-	template <typename Callable, typename ... Ts>
-	BatchJob<Callable, Ts...> MakeBatchJob(Callable callable, Ts... args) {
-		return BatchJob<Callable, Ts...>(callable, args...);
+	template <typename Callable, typename ... Params>
+	BatchJob<Callable, Params...> MakeBatchJob(Callable callable, Params... args) {
+		return BatchJob<Callable, Params...>(callable, args...);
 	}
 }

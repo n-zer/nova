@@ -52,14 +52,14 @@ namespace Nova {
 	}
 
 	//Starts the job system. Pass in a callable object and some parameters.
-	template <typename Callable, typename ... Ts>
-	static void Init(Callable callable, Ts ... args) {
+	template <typename Callable, typename ... Params>
+	static void Init(Callable callable, Params ... args) {
 		Init(std::thread::hardware_concurrency(), callable, args...);
 	}
 
 	//Starts the job system. Pass in a callable object and some parameters.
-	template <typename Callable, typename ... Ts>
-	static void Init(unsigned threadCount, Callable callable, Ts ... args) {
+	template <typename Callable, typename ... Params>
+	static void Init(unsigned threadCount, Callable callable, Params ... args) {
 		//create threads
 		std::vector<internal::WorkerThread> threads;
 		threads.resize(threadCount - 1);
