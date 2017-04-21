@@ -35,8 +35,8 @@ namespace Nova {
 
 		//Builds and queues a batch job
 		template<typename Callable, typename ... Ts>
-		static void PushBatch(Callable callable, unsigned start, unsigned end, Ts... args) {
-			Push(MakeBatchJob(callable, start, end, args...));
+		static void PushBatch(Callable callable, Ts... args) {
+			Push(MakeBatchJob(callable, args...));
 		}
 
 		//Queues a pre-built batch job
