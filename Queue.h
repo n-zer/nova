@@ -111,8 +111,8 @@ namespace Nova {
 
 		template<typename Callable, typename ... Ts>
 		static void ParallelFor(Callable callable, unsigned start, unsigned end, Ts... args) {
-			Call(MakeBatchJob([&](unsigned start, unsigned end, Ts... args) {
-				for (unsigned c = start; c < end; c++)
+			Call(MakeBatchJob([&](BatchIndex start, BatchIndex end, Ts... args) {
+				for (BatchIndex c = start; c < end; c++)
 					callable(c, args...);
 			}, start, end, args...));
 		}

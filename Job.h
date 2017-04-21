@@ -24,12 +24,14 @@ namespace Nova {
 		std::tuple<Ts...> m_tuple;
 	};
 
+	typedef unsigned BatchIndex;
+
 	template <typename Callable, typename ... Ts>
 	class BatchJob {
 	public:
-		BatchJob(Callable callable, unsigned start, unsigned end, Ts... args)
-			: m_callable(callable), m_tuple(start, end, args...) {
-			unsigned int count = end - start;
+		BatchJob(Callable callable, Ts... args)
+			: m_callable(callable), m_tuple(args...) {
+			unsigned int count = End() - Start();
 
 			m_sections = internal::WorkerThread::GetThreadCount();
 			if (count < m_sections)
@@ -37,16 +39,16 @@ namespace Nova {
 		}
 
 		void operator () () {
-			std::tuple<unsigned, unsigned, Ts...> params = m_tuple;
-			unsigned int start = std::get<0>(params);
-			unsigned int end = std::get<1>(params);
+			std::tuple<Ts...> params = m_tuple;
+			BatchIndex start = Start();
+			BatchIndex end = End();
 			float count = static_cast<float>(end - start);
 			unsigned int section = InterlockedIncrement(&m_currentSection);
 			unsigned int newStart = static_cast<unsigned>(start + floorf(static_cast<float>(count*(section - 1) / m_sections)));
 			end = static_cast<unsigned int>(start + floorf(count*section / m_sections));
 
-			std::get<0>(params) = newStart;
-			std::get<1>(params) = end;
+			Start(params) = newStart;
+			End(params) = end;
 			internal::apply(m_callable, params);
 		}
 
@@ -69,45 +71,30 @@ namespace Nova {
 		alignas(32) uint32_t m_currentSection = 0;
 		unsigned m_sections;
 		Callable m_callable;
-		std::tuple<unsigned, unsigned, Ts...> m_tuple;
-	};
+		std::tuple<Ts...> m_tuple;
 
-	template <typename Obj, typename ... Ts>
-	class MemberFunctionWrapper {
-	public:
-		MemberFunctionWrapper(Obj obj, void(Obj::*func)(Ts...))
-			: m_func(func), m_obj(obj) {
-
+		unsigned& Start() {
+			return Start(m_tuple);
 		}
-
-		void operator() (Ts... args) {
-			(m_obj.*m_func)(args...);
+		static unsigned& Start(decltype(m_tuple) & tuple) {
+			return std::get<internal::Index<BatchIndex, decltype(tuple)>::value>(tuple);
 		}
-	private:
-		void (Obj::*m_func)(Ts... args);
-		Obj m_obj;
+		unsigned& End() {
+			return End(m_tuple);
+		}
+		static unsigned& End(decltype(m_tuple) & tuple) {
+			return std::get<internal::Index<BatchIndex, decltype(tuple)>::value + 1>(tuple);
+		}
 	};
 
 
 	template <typename Callable, typename ... Ts>
 	SimpleJob<Callable, Ts...> MakeJob(Callable callable, Ts... args) {
-		//To-do, insert SFINAE check for () operator on callable
 		return SimpleJob<Callable, Ts...>(callable, args...);
 	}
 
 	template <typename Callable, typename ... Ts>
-	BatchJob<Callable, Ts...> MakeBatchJob(Callable callable, unsigned start, unsigned end, Ts... args) {
-		//To-do, insert SFINAE check for () operator on callable
-		return BatchJob<Callable, Ts...>(callable, start, end, args...);
-	}
-
-	template <typename Obj, typename ... Ts>
-	SimpleJob<MemberFunctionWrapper<Obj, Ts...>, Ts...> MakeJob(void(Obj::*func)(Ts...), Obj obj, Ts... args) {
-		return SimpleJob<MemberFunctionWrapper<Obj, Ts...>, Ts...>({ obj,func }, args...);
-	}
-
-	template <typename Obj, typename ... Ts>
-	BatchJob<MemberFunctionWrapper<Obj, Ts...>, Ts...> MakeBatchJob(void(Obj::*func)(Ts...), Obj obj, unsigned start, unsigned end, Ts... args) {
-		return BatchJob<MemberFunctionWrapper<Obj, unsigned, unsigned, Ts...>, Ts...>({ obj,func }, start, end, args...);
+	BatchJob<Callable, Ts...> MakeBatchJob(Callable callable, Ts... args) {
+		return BatchJob<Callable, Ts...>(callable, args...);
 	}
 }
