@@ -12,6 +12,8 @@ namespace Nova {
 
 	void Queue::PushEnvelopes(std::vector<Envelope>& envs)
 	{
+		//std::vector<Envelope> envScoped;
+		//envScoped.swap(envs);
 		m_queue.enqueue_bulk(envs.begin(), envs.size());
 	}
 
@@ -50,15 +52,19 @@ namespace Nova {
 			newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)QueueJobsAndEnterJobLoop, nullptr);
 
 		SwitchToFiber(newFiber);
+		int test = 5;
 	}
 
 	void Queue::FinishCalledJob(LPVOID oldFiber) {
 		//Mark for re-use
+		LPVOID test = GetCurrentFiber();
 		m_availableFibers.push_back(GetCurrentFiber());
 		SwitchToFiber(oldFiber);
+		test = GetCurrentFiber();
 
 		//Re-use starts here
-		PushEnvelopes(m_currentJobs);
-		m_currentJobs.clear();
+		std::vector<Envelope> envs;
+		envs.swap(m_currentJobs);
+		PushEnvelopes(envs);
 	}
 }
