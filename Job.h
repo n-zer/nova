@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <Windows.h>
 #include <type_traits>
+#include <algorithm>
 
 namespace Nova {
 	template <typename Callable, typename ... Params>
@@ -12,10 +13,9 @@ namespace Nova {
 	public:
 		SimpleJob(Callable callable, Params... args)
 			: m_callable(callable), m_tuple(args...) {
-
 		}
 
-		void operator () () {
+		void operator () () const {
 			internal::apply(m_callable, m_tuple);
 		}
 
@@ -30,12 +30,7 @@ namespace Nova {
 	class BatchJob {
 	public:
 		BatchJob(Callable callable, Params... args)
-			: m_callable(callable), m_tuple(args...) {
-			unsigned int count = End() - Start();
-
-			m_sections = internal::WorkerThread::GetThreadCount();
-			if (count < m_sections)
-				m_sections = count;
+			: m_callable(callable), m_tuple(args...), m_sections((std::min)(End() - Start(), internal::WorkerThread::GetThreadCount())) {
 		}
 
 		void operator () () {
@@ -52,7 +47,7 @@ namespace Nova {
 			internal::apply(m_callable, params);
 		}
 
-		unsigned GetSections() {
+		unsigned GetSections() const {
 			return m_sections;
 		}
 
@@ -69,9 +64,9 @@ namespace Nova {
 
 	private:
 		alignas(32) uint32_t m_currentSection = 0;
-		unsigned m_sections;
 		Callable m_callable;
 		std::tuple<Params...> m_tuple;
+		unsigned m_sections;
 
 		unsigned& Start() {
 			return Start(m_tuple);
