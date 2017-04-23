@@ -162,7 +162,7 @@ namespace Nova {
 		//Converts a BatchJob into a vector of Envelopes
 		template<typename Callable, typename ... Params>
 		static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Params...> & j) {
-			std::vector<Envelope> jobs;
+			std::vector<Envelope> jobs(j.GetSections());
 			auto* basePtr = new BatchJob<Callable, Params...>(j);
 			SealedEnvelope se(Envelope(&Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
 			for (unsigned int section = 1; section <= j.GetSections(); section++) {
@@ -176,7 +176,7 @@ namespace Nova {
 		//Converts a BatchJob into a vector of Envelopes
 		template<typename Callable, typename ... Params>
 		static std::vector<Envelope> SplitBatchJobNoAlloc(BatchJob<Callable, Params...> & j) {
-			std::vector<Envelope> jobs;
+			std::vector<Envelope> jobs(j.GetSections());
 			for (unsigned int section = 1; section <= j.GetSections(); section++) {
 				Envelope gj(&j);
 				jobs.push_back(gj);

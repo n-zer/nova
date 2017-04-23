@@ -12,8 +12,6 @@ namespace Nova {
 
 	void Queue::PushEnvelopes(std::vector<Envelope>& envs)
 	{
-		//std::vector<Envelope> envScoped;
-		//envScoped.swap(envs);
 		m_queue.enqueue_bulk(envs.begin(), envs.size());
 	}
 
@@ -31,7 +29,9 @@ namespace Nova {
 	void Queue::Call(std::vector<Envelope> & e)
 	{
 		PVOID currentFiber = GetCurrentFiber();
-		auto completionJob = MakeJob(&FinishCalledJob, GetCurrentFiber());
+		auto completionJob = [=]() {
+			Push(MakeJob(&FinishCalledJob, currentFiber));
+		};
 
 		{
 			SealedEnvelope se(Envelope(&Envelope::RunRunnable<decltype(completionJob)>, &completionJob));
