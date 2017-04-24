@@ -4,7 +4,7 @@
 #include <Windows.h>
 
 namespace Nova {
-
+	//Denotes the start or end of a batch job's range
 	typedef unsigned BatchIndex;
 
 	namespace internal{
@@ -97,11 +97,13 @@ namespace Nova {
 		}
 	}
 
+	//Creates a job from a Callable object and parameters
 	template <typename Callable, typename ... Params>
 	internal::SimpleJob<Callable, Params...> MakeJob(Callable callable, Params... args) {
 		return internal::SimpleJob<Callable, Params...>(callable, args...);
 	}
 
+	//Creates a batch job from a Callable object and parameters (starting with a pair of BatchIndexes)
 	template <typename Callable, typename ... Params>
 	internal::BatchJob<Callable, Params...> MakeBatchJob(Callable callable, Params... args) {
 		return internal::BatchJob<Callable, Params...>(callable, args...);
