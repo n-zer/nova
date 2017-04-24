@@ -1,10 +1,10 @@
 #include "Envelope.h"
 namespace Nova {
-	void Envelope::AddSealedEnvelope(SealedEnvelope & se) {
+	void Envelope::AddSealedEnvelope(internal::SealedEnvelope & se) {
 		m_sealedEnvelope = se;
 	}
 
-	SealedEnvelope::SealedEnvelope(Envelope e)
+	internal::SealedEnvelope::SealedEnvelope(Envelope e)
 		: m_seal(std::make_shared<Seal>(e)) {
 	}
 }

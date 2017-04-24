@@ -1,7 +1,7 @@
-#include <Windows.h>
 #include "WorkerThread.h"
 #include "Envelope.h"
-#include "Queue.h"
+#include "Nova.h"
+#include <Windows.h>
 
 namespace Nova {
 	namespace internal {
@@ -16,7 +16,7 @@ namespace Nova {
 		void WorkerThread::JobLoop() {
 			while (true) {
 				Envelope e;
-				Queue::PopJob(e);
+				Pop(e);
 				e();
 			}
 		}

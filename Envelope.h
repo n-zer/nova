@@ -1,18 +1,19 @@
 #pragma once
 
 #include <memory>
-#include <vector>
 
 namespace Nova {
 	class Envelope;
-	class SealedEnvelope {
-	public:
-		SealedEnvelope() {}
-		SealedEnvelope(Envelope e);
-	private:
-		struct Seal;
-		std::shared_ptr<Seal> m_seal;
-	};
+	namespace internal{
+		class SealedEnvelope {
+		public:
+			SealedEnvelope() {}
+			SealedEnvelope(Envelope e);
+		private:
+			struct Seal;
+			std::shared_ptr<Seal> m_seal;
+		};
+	}
 
 	class Envelope {
 	public:
@@ -36,7 +37,7 @@ namespace Nova {
 			m_runFunc(m_runnable);
 		}
 
-		void AddSealedEnvelope(SealedEnvelope & se);
+		void AddSealedEnvelope(internal::SealedEnvelope & se);
 
 		template <typename Runnable>
 		static void RunRunnable(void * runnable) {
@@ -58,10 +59,10 @@ namespace Nova {
 	private:
 		void(*m_runFunc)(void *);
 		void * m_runnable;
-		SealedEnvelope m_sealedEnvelope;
+		internal::SealedEnvelope m_sealedEnvelope;
 	};
 
-	struct SealedEnvelope::Seal {
+	struct internal::SealedEnvelope::Seal {
 		Seal(Envelope e)
 			: m_env(e) {
 		}

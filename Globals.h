@@ -1,14 +1,11 @@
 #pragma once
-#include <algorithm>
-#include <functional>
-#include <utility>
-#include <random>
+#include <Windows.h>
 
 namespace Nova {
 	namespace internal {
 		template <typename T>
 		T clip(const T& n, const T& lower, const T& upper) {
-			return max(lower, min(n, upper));
+			return (std::max)(lower, (std::min)(n, upper));
 		}
 
 		namespace detail {
@@ -64,7 +61,7 @@ namespace Nova {
 
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		Queue::Push(callable, args...);
+		Push(callable, args...);
 
 		//main thread works too
 		internal::WorkerThread::JobLoop();

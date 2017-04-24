@@ -2,7 +2,6 @@
 
 #include <thread>
 #include <mutex>
-#include <Windows.h>
 
 namespace Nova {
 	namespace internal {
