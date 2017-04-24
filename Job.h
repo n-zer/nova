@@ -8,6 +8,9 @@
 #include <algorithm>
 
 namespace Nova {
+	template<typename Callable, typename ... Params>
+	class BatchJob;
+
 	template <typename Callable, typename ... Params>
 	class SimpleJob {
 	public:
@@ -19,7 +22,10 @@ namespace Nova {
 			internal::apply(m_callable, m_tuple);
 		}
 
-	private:
+		//Ignore the squiggly, this is defined further down
+		operator BatchJob<Callable, Params...>() const;
+
+	protected:
 		Callable m_callable;
 		std::tuple<Params...> m_tuple;
 	};
@@ -27,10 +33,14 @@ namespace Nova {
 	typedef unsigned BatchIndex;
 
 	template <typename Callable, typename ... Params>
-	class BatchJob {
+	class BatchJob : public SimpleJob<Callable, Params...> {
 	public:
 		BatchJob(Callable callable, Params... args)
-			: m_callable(callable), m_tuple(args...), m_sections((std::min)(End() - Start(), internal::WorkerThread::GetThreadCount())) {
+			: SimpleJob<Callable, Params...>(callable, args...), m_sections((std::min)(End() - Start(), internal::WorkerThread::GetThreadCount())) {
+		}
+
+		BatchJob(SimpleJob<Callable, Params...> & sj)
+			: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), internal::WorkerThread::GetThreadCount())) {
 		}
 
 		void operator () () {
@@ -64,8 +74,6 @@ namespace Nova {
 
 	private:
 		alignas(32) uint32_t m_currentSection = 0;
-		Callable m_callable;
-		std::tuple<Params...> m_tuple;
 		unsigned m_sections;
 
 		unsigned& Start() {
@@ -81,6 +89,11 @@ namespace Nova {
 			return std::get<internal::Index<BatchIndex, decltype(tuple)>::value + 1>(tuple);
 		}
 	};
+
+	template<typename Callable, typename ...Params>
+	inline SimpleJob<Callable, Params...>::operator BatchJob<Callable, Params...>() const {
+		return BatchJob<Callable, Params...>(*this);
+	}
 
 
 	template <typename Callable, typename ... Params>
