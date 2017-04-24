@@ -2,7 +2,6 @@
 
 #include <memory>
 #include <vector>
-#include "Job.h"
 
 namespace Nova {
 	class Envelope;
@@ -10,8 +9,6 @@ namespace Nova {
 	public:
 		SealedEnvelope() {}
 		SealedEnvelope(Envelope e);
-		template<typename Callable, typename ... Params>
-		SealedEnvelope(Callable callable, Params ... args);
 	private:
 		struct Seal;
 		std::shared_ptr<Seal> m_seal;
@@ -20,6 +17,11 @@ namespace Nova {
 	class Envelope {
 	public:
 		Envelope() {}
+
+		template<typename Runnable>
+		Envelope(Runnable runnable)
+			: m_runFunc(&Envelope::RunAndDeleteRunnable<Runnable>), m_runnable(new Runnable(runnable)) {
+		}
 
 		template<typename Runnable>
 		Envelope(Runnable * runnable)
@@ -70,9 +72,4 @@ namespace Nova {
 
 		Envelope m_env;
 	};
-
-	template<typename Callable, typename ... Params>
-	SealedEnvelope::SealedEnvelope(Callable callable, Params ... args)
-		: m_seal(std::make_shared<Seal>(Envelope(&Envelope::RunAndDeleteRunnable<SimpleJob<Callable, Params...>>, new SimpleJob<Callable, Params...>(callable, args...)))) {
-	}
 }
