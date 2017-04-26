@@ -8,6 +8,10 @@ namespace Nova {
 		internal::m_queue.enqueue(e);
 	}
 
+	void Push(Envelope&& e) {
+		Push(e);
+	}
+
 	void Push(std::vector<Envelope> & envs) {
 		internal::m_queue.enqueue_bulk(envs.begin(), envs.size());
 	}

@@ -17,9 +17,7 @@ namespace Nova {
 	//Queues a pre-built standalone job
 	template<typename Callable, typename ... Params>
 	static void Push(internal::SimpleJob<Callable, Params...> & j) {
-		auto* basePtr = new internal::SimpleJob<Callable, Params...>(j);
-		Envelope env(&Envelope::RunAndDeleteRunnable<internal::SimpleJob<Callable, Params...>>, basePtr);
-		Push(env);
+		Push({ j });
 	}
 
 	//Queues a pre-built standalone job (rvalue)
@@ -115,6 +113,9 @@ namespace Nova {
 	//Queues an envelope
 	void Push(Envelope& e);
 
+	//Queues an envelope (rvalue)
+	void Push(Envelope&& e);
+
 	//Queues a vector of envelopes
 	void Push(std::vector<Envelope> & envs);
 
@@ -156,8 +157,7 @@ namespace Nova {
 		//Loads a Runnable into an envelope and pushes it to the given vector
 		template<typename Runnable>
 		static void PackRunnable(std::vector<Envelope> & envs, Runnable& runnable) {
-			auto* basePtr = new Runnable(runnable);
-			envs.emplace_back(&Envelope::RunAndDeleteRunnable<Runnable>, basePtr);
+			envs.emplace_back(runnable);
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
@@ -177,7 +177,7 @@ namespace Nova {
 		//Loads a Runnable into an envelope and pushes it to the given vector
 		template<typename Runnable>
 		static void PackRunnableNoAlloc(std::vector<Envelope> & envs, Runnable& runnable) {
-			envs.emplace_back(&Envelope::RunRunnable<Runnable>, &runnable);
+			envs.emplace_back(&runnable);
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
