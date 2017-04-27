@@ -34,7 +34,7 @@ namespace Nova {
 
 	//Queues a pre-built batch job, invoking the envelope when all sections have finished
 	template<typename Callable, typename ... Params>
-	static void Push(internal::BatchJob<Callable, Params...> & j, Envelope & next) {
+	static void Push(Envelope & next, internal::BatchJob<Callable, Params...> & j) {
 		internal::SealedEnvelope se(next);
 		std::vector<Envelope> jobs = SplitBatchJob(j);
 
@@ -52,8 +52,8 @@ namespace Nova {
 
 	//Queues a pre-built batch job (rvalue), invoking the envelope when all sections have finished
 	template<typename Callable, typename ... Params>
-	static void Push(internal::BatchJob<Callable, Params...> && j, Envelope & next) {
-		Push(j, next);
+	static void Push(Envelope & next, internal::BatchJob<Callable, Params...> && j) {
+		Push(next, j);
 	}
 
 	//Queues a set of Runnables
@@ -72,7 +72,7 @@ namespace Nova {
 
 	//Queues a set of Runnables, invoking the envelope when all have finished
 	template<typename ... Runnables>
-	static void Push(Runnables&... runnables, Envelope & next) {
+	static void Push(Envelope & next, Runnables&... runnables) {
 		internal::SealedEnvelope se(next);
 		std::vector<Envelope> envs;
 		internal::PackRunnable(envs, runnables...);
@@ -83,8 +83,8 @@ namespace Nova {
 
 	//Queues a set of Runnables (rvalues), invoking the envelope when all have finished
 	template<typename ... Runnables>
-	static void Push(Runnables&&... runnables, Envelope & next) {
-		Push(runnables..., next);
+	static void Push(Envelope & next, Runnables&&... runnables) {
+		Push(next, runnables...);
 	}
 
 	//Queues a vector of Runnables
@@ -99,7 +99,7 @@ namespace Nova {
 
 	//Queues a vector of Runnables, invoking the envelope when all have finished
 	template<typename Runnable>
-	static void Push(std::vector<Runnable> & runnables, Envelope & next) {
+	static void Push(Envelope & next, std::vector<Runnable> & runnables) {
 		internal::SealedEnvelope se(next);
 		std::vector<Envelope> envs;
 		envs.reserve(runnables.size());
