@@ -61,7 +61,7 @@ namespace Nova {
 
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		Push(callable, args...);
+		Push(MakeJob(callable, args...));
 
 		//main thread works too
 		internal::WorkerThread::JobLoop();

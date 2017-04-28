@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include "Envelope.h"
 #include "Globals.h"
 #include "Job.h"
@@ -8,106 +9,31 @@
 #include "blockingconcurrentqueue.h"
 
 namespace Nova {
-	//Builds and queues a standalone job
-	template<typename Callable, typename ... Params>
-	static void Push(Callable callable, Params... args) {
-		Push(MakeJob(callable, args...));
-	}
-
-	//Queues a pre-built standalone job
-	template<typename Callable, typename ... Params>
-	static void Push(internal::SimpleJob<Callable, Params...> & j) {
-		Push({ j });
-	}
-
-	//Queues a pre-built standalone job (rvalue)
-	template<typename Callable, typename ... Params>
-	static void Push(internal::SimpleJob<Callable, Params...> && j) {
-		Push(j);
-	}
-
-	//Queues a pre-built batch job
-	template<typename Callable, typename ... Params>
-	static void Push(internal::BatchJob<Callable, Params...> & j) {
-		Push(SplitBatchJob(j));
-	}
-
-	//Queues a pre-built batch job, invoking the envelope when all sections have finished
-	template<typename Callable, typename ... Params>
-	static void Push(Envelope & next, internal::BatchJob<Callable, Params...> & j) {
-		internal::SealedEnvelope se(next);
-		std::vector<Envelope> jobs = SplitBatchJob(j);
-
-		for (Envelope & e : jobs)
-			e.AddSealedEnvelope(se);
-
-		Push(jobs);
-	}
-
-	//Queues a pre-built batch job (rvalue)
-	template<typename Callable, typename ... Params>
-	static void Push(internal::BatchJob<Callable, Params...> && j) {
-		Push(j);
-	}
-
-	//Queues a pre-built batch job (rvalue), invoking the envelope when all sections have finished
-	template<typename Callable, typename ... Params>
-	static void Push(Envelope & next, internal::BatchJob<Callable, Params...> && j) {
-		Push(next, j);
-	}
-
 	//Queues a set of Runnables
 	template<typename ... Runnables>
 	static void Push(Runnables&... runnables) {
-		std::vector<Envelope> envs;
-		internal::PackRunnable(envs, runnables...);
+		std::array<Envelope, sizeof...(Runnables) - internal::BatchCount<Runnables...>::value> envs;
+		std::vector<Envelope> batchEnvs;
+		batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
+		internal::PackRunnable(envs, batchEnvs, runnables...);
 		Push(envs);
-	}
-
-	//Queues a set of Runnables (rvalues)
-	template<typename ... Runnables>
-	static void Push(Runnables&&... runnables) {
-		Push(runnables...);
+		Push(batchEnvs);
 	}
 
 	//Queues a set of Runnables, invoking the envelope when all have finished
 	template<typename ... Runnables>
 	static void Push(Envelope & next, Runnables&... runnables) {
 		internal::SealedEnvelope se(next);
-		std::vector<Envelope> envs;
-		internal::PackRunnable(envs, runnables...);
+		std::array<Envelope, sizeof...(runnables) - internal::BatchCount<Runnables...>::value> envs;
+		std::vector<Envelope> batchEnvs;
+		batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
+		internal::PackRunnable(envs, batchEnvs, runnables...);
 		for (Envelope & e : envs)
 			e.AddSealedEnvelope(se);
-		Push(envs);
-	}
-
-	//Queues a set of Runnables (rvalues), invoking the envelope when all have finished
-	template<typename ... Runnables>
-	static void Push(Envelope & next, Runnables&&... runnables) {
-		Push(next, runnables...);
-	}
-
-	//Queues a vector of Runnables
-	template<typename Runnable>
-	static void Push(std::vector<Runnable> & runnables) {
-		std::vector<Envelope> envs;
-		envs.reserve(runnables.size());
-		for (Runnable & r : runnables)
-			internal::PackRunnable(envs, r);
-		Push(envs);
-	}
-
-	//Queues a vector of Runnables, invoking the envelope when all have finished
-	template<typename Runnable>
-	static void Push(Envelope & next, std::vector<Runnable> & runnables) {
-		internal::SealedEnvelope se(next);
-		std::vector<Envelope> envs;
-		envs.reserve(runnables.size());
-		for (Runnable & r : runnables)
-			internal::PackRunnable(envs, r);
-		for (Envelope & e : envs)
+		for (Envelope & e : batchEnvs)
 			e.AddSealedEnvelope(se);
 		Push(envs);
+		Push(batchEnvs);
 	}
 	
 	//Queues an envelope
@@ -118,6 +44,11 @@ namespace Nova {
 
 	//Queues a vector of envelopes
 	void Push(std::vector<Envelope> & envs);
+
+	template<unsigned N>
+	void Push(std::array<Envelope, N> & envs) {
+		internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+	}
 
 	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
 	template<typename ... Runnables>
@@ -147,22 +78,36 @@ namespace Nova {
 	}
 
 	namespace internal{
+		class Resources {
+		public:
+			static moodycamel::BlockingConcurrentQueue<Envelope> m_queue;
+			static thread_local std::vector<LPVOID> m_availableFibers;
+			static thread_local std::vector<Envelope> m_currentJobs;
+		};
+
 		//Breaks a Runnable off the parameter pack and recurses
-		template<typename Runnable, typename ... Runnables>
-		static void PackRunnable(std::vector<Envelope> & envs, Runnable & runnable, Runnables&... runnables) {
-			internal::PackRunnable(envs, runnable);
-			internal::PackRunnable(envs, runnables...);
+		template<typename ... Runnables, unsigned int N>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::vector<Envelope> & batchEnvs, Runnables&... runnables) {
+			unsigned int index(0);
+			internal::PackRunnable(envs, index, batchEnvs, runnables...);
+		}
+
+		//Breaks a Runnable off the parameter pack and recurses
+		template<typename Runnable, typename ... Runnables, unsigned int N>
+		static void PackRunnable(std::array<Envelope, N> & envs, unsigned & index, std::vector<Envelope> & batchEnvs, Runnable & runnable, Runnables&... runnables) {
+			internal::PackRunnable(envs, index, batchEnvs, runnable);
+			internal::PackRunnable(envs, index, batchEnvs, runnables...);
 		}
 
 		//Loads a Runnable into an envelope and pushes it to the given vector
-		template<typename Runnable>
-		static void PackRunnable(std::vector<Envelope> & envs, Runnable& runnable) {
-			envs.emplace_back(runnable);
+		template<typename Runnable, unsigned int N>
+		static void PackRunnable(std::array<Envelope, N> & envs, unsigned & index, std::vector<Envelope> & batchEnvs, Runnable& runnable) {
+			envs[index++] = { runnable };
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
-		template<typename Callable, typename ... Params>
-		static void PackRunnable(std::vector<Envelope> & envs, BatchJob<Callable, Params...> & j) {
+		template<typename Callable, typename ... Params, unsigned int N>
+		static void PackRunnable(std::array<Envelope, N> & envs, unsigned & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> & j) {
 			std::vector<Envelope> splitEnvs = SplitBatchJob(j);
 			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
 		}
@@ -212,6 +157,23 @@ namespace Nova {
 			return jobs;
 		}
 
+		template<typename... Args> struct BatchCount;
+
+		template<>
+		struct BatchCount<> {
+			static const int value = 0;
+		};
+
+		template<typename ... Params, typename... Args>
+		struct BatchCount<BatchJob<Params...>, Args...> {
+			static const int value = 1 + BatchCount<Args...>::value;
+		};
+
+		template<typename First, typename... Args>
+		struct BatchCount<First, Args...> {
+			static const int value = BatchCount<Args...>::value;
+		};
+
 		//Attempts to grab an envelope from the queue
 		void Pop(Envelope &e);
 
@@ -223,9 +185,5 @@ namespace Nova {
 		//This is used by the Call- functions to delay queueing of jobs until after the calling fiber
 		//has been suspended.
 		void QueueJobsAndEnterJobLoop(LPVOID jobPtr);
-
-		static moodycamel::BlockingConcurrentQueue<Envelope> m_queue;
-		static thread_local std::vector<LPVOID> m_availableFibers;
-		static thread_local std::vector<Envelope> m_currentJobs;
 	}
 }

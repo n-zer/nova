@@ -5,7 +5,7 @@
 namespace Nova {
 
 	void Push(Envelope& e) {
-		internal::m_queue.enqueue(e);
+		internal::Resources::m_queue.enqueue(e);
 	}
 
 	void Push(Envelope&& e) {
@@ -13,18 +13,21 @@ namespace Nova {
 	}
 
 	void Push(std::vector<Envelope> & envs) {
-		internal::m_queue.enqueue_bulk(envs.begin(), envs.size());
+		internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
 	}
 
 	namespace internal{
+		moodycamel::BlockingConcurrentQueue<Envelope> Resources::m_queue;
+		thread_local std::vector<LPVOID> Resources::m_availableFibers;
+		thread_local std::vector<Envelope> Resources::m_currentJobs;
 
 		void Pop(Envelope &e) {
-			internal::m_queue.wait_dequeue(e);
+			internal::Resources::m_queue.wait_dequeue(e);
 		}
 
 		void QueueJobsAndEnterJobLoop(LPVOID jobPtr) {
-			Push(m_currentJobs);
-			m_currentJobs.clear();
+			Push(Resources::m_currentJobs);
+			Resources::m_currentJobs.clear();
 			internal::WorkerThread::JobLoop();
 		}
 
@@ -43,14 +46,14 @@ namespace Nova {
 				for (Envelope & e : envs)
 					e.AddSealedEnvelope(se);
 
-				envs.swap(m_currentJobs);
+				envs.swap(Resources::m_currentJobs);
 			}
 
 			LPVOID newFiber;
 
-			if (m_availableFibers.size() > 0) {
-				newFiber = m_availableFibers[m_availableFibers.size() - 1];
-				m_availableFibers.pop_back();
+			if (Resources::m_availableFibers.size() > 0) {
+				newFiber = Resources::m_availableFibers[Resources::m_availableFibers.size() - 1];
+				Resources::m_availableFibers.pop_back();
 			}
 			else
 				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)QueueJobsAndEnterJobLoop, nullptr);
@@ -60,12 +63,12 @@ namespace Nova {
 
 		void FinishCalledJob(LPVOID oldFiber) {
 			//Mark for re-use
-			m_availableFibers.push_back(GetCurrentFiber());
+			Resources::m_availableFibers.push_back(GetCurrentFiber());
 			SwitchToFiber(oldFiber);
 
 			//Re-use starts here
 			std::vector<Envelope> envs;
-			envs.swap(m_currentJobs);
+			envs.swap(Resources::m_currentJobs);
 			Push(envs);
 		}
 	}
