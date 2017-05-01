@@ -9,6 +9,7 @@ namespace Nova {
 		public:
 			SealedEnvelope() {}
 			SealedEnvelope(Envelope e);
+			void Open();
 		private:
 			struct Seal;
 			std::shared_ptr<Seal> m_seal;
@@ -38,6 +39,7 @@ namespace Nova {
 		}
 
 		void AddSealedEnvelope(internal::SealedEnvelope & se);
+		void OpenSealedEnvelope();
 
 		template <typename Runnable>
 		static void RunRunnable(void * runnable) {

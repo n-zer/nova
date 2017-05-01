@@ -19,46 +19,15 @@ namespace Nova {
 	namespace internal{
 		moodycamel::BlockingConcurrentQueue<Envelope> Resources::m_queue;
 		thread_local std::vector<LPVOID> Resources::m_availableFibers;
-		thread_local std::vector<Envelope> Resources::m_currentJobs;
+		thread_local SealedEnvelope * Resources::m_callTrigger;
 
 		void Pop(Envelope &e) {
 			internal::Resources::m_queue.wait_dequeue(e);
 		}
 
-		void QueueJobsAndEnterJobLoop(LPVOID jobPtr) {
-			Push(Resources::m_currentJobs);
-			Resources::m_currentJobs.clear();
+		void OpenCallTriggerAndEnterJobLoop(LPVOID jobPtr) {
+			Resources::m_callTrigger->Open();
 			internal::WorkerThread::JobLoop();
-		}
-
-		void Call(std::vector<Envelope> & envs) {
-			if (envs.size() == 0)
-				throw std::runtime_error("Attempting to call no Envelopes");
-
-			PVOID currentFiber = GetCurrentFiber();
-			auto completionJob = [=]() {
-				Push(MakeJob(&FinishCalledJob, currentFiber));
-			};
-
-			{
-				SealedEnvelope se(Envelope(&Envelope::RunRunnable<decltype(completionJob)>, &completionJob));
-
-				for (Envelope & e : envs)
-					e.AddSealedEnvelope(se);
-
-				envs.swap(Resources::m_currentJobs);
-			}
-
-			LPVOID newFiber;
-
-			if (Resources::m_availableFibers.size() > 0) {
-				newFiber = Resources::m_availableFibers[Resources::m_availableFibers.size() - 1];
-				Resources::m_availableFibers.pop_back();
-			}
-			else
-				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)QueueJobsAndEnterJobLoop, nullptr);
-
-			SwitchToFiber(newFiber);
 		}
 
 		void FinishCalledJob(LPVOID oldFiber) {
@@ -67,9 +36,7 @@ namespace Nova {
 			SwitchToFiber(oldFiber);
 
 			//Re-use starts here
-			std::vector<Envelope> envs;
-			envs.swap(Resources::m_currentJobs);
-			Push(envs);
+			Resources::m_callTrigger->Open();
 		}
 	}
 }
