@@ -38,5 +38,13 @@ namespace Nova {
 			//Re-use starts here
 			Resources::m_callTrigger->Open();
 		}
+
+		void Push(internal::SealedEnvelope & se, std::vector<Envelope> & envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+			for (Envelope & e : envs)
+				e.OpenSealedEnvelope();
+		}
 	}
 }

@@ -28,12 +28,8 @@ namespace Nova {
 		std::vector<Envelope> batchEnvs;
 		batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
 		internal::PackRunnable(envs, batchEnvs, runnables...);
-		for (Envelope & e : envs)
-			e.AddSealedEnvelope(se);
-		for (Envelope & e : batchEnvs)
-			e.AddSealedEnvelope(se);
-		Push(envs);
-		Push(batchEnvs);
+		internal::Push(se, envs);
+		internal::Push(se, batchEnvs);
 	}
 	
 	//Queues an envelope
@@ -172,6 +168,18 @@ namespace Nova {
 			static const int value = BatchCount<Args...>::value;
 		};
 
+		template<unsigned N>
+		void Push(internal::SealedEnvelope & se, std::array<Envelope, N> & envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+			for (Envelope & e : envs)
+				e.OpenSealedEnvelope();
+		}
+
+		//Queues a vector of envelopes
+		void Push(internal::SealedEnvelope & se, std::vector<Envelope> & envs);
+
 		//Attempts to grab an envelope from the queue
 		void Pop(Envelope &e);
 
@@ -182,22 +190,15 @@ namespace Nova {
 
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				Push(MakeJob(&FinishCalledJob, currentFiber));
+				Nova::Push(MakeJob(&FinishCalledJob, currentFiber));
 			};
 
 			SealedEnvelope se(Envelope(&Envelope::RunRunnable<decltype(completionJob)>, &completionJob));
 			Resources::m_callTrigger = &se;
 
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Push(envs);
-			for (Envelope & e : envs)
-				e.OpenSealedEnvelope();
+			internal::Push(se, envs);
 
-			for (Envelope & e : batchEnvs)
-				e.AddSealedEnvelope(se);
-			Push(batchEnvs);
-			batchEnvs.clear();
+			internal::Push(se, batchEnvs);
 
 			LPVOID newFiber;
 
