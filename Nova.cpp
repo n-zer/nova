@@ -5,7 +5,8 @@
 namespace Nova {
 
 	void Push(Envelope& e) {
-		internal::Resources::m_queue.enqueue(e);
+		using namespace internal;
+		Resources::m_queue.Push(e);
 	}
 
 	void Push(Envelope&& e) {
@@ -13,16 +14,18 @@ namespace Nova {
 	}
 
 	void Push(std::vector<Envelope> & envs) {
-		internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+		using namespace internal;
+		Resources::m_queue.Push(envs);
 	}
 
 	namespace internal{
-		moodycamel::BlockingConcurrentQueue<Envelope> Resources::m_queue;
+		QueueWrapper<Envelope> Resources::m_queue;
 		thread_local std::vector<LPVOID> Resources::m_availableFibers;
 		thread_local SealedEnvelope * Resources::m_callTrigger;
 
 		void Pop(Envelope &e) {
-			internal::Resources::m_queue.wait_dequeue(e);
+			using namespace internal;
+			Resources::m_queue.Pop(e);
 		}
 
 		void OpenCallTriggerAndEnterJobLoop(LPVOID jobPtr) {
@@ -42,7 +45,7 @@ namespace Nova {
 		void Push(internal::SealedEnvelope & se, std::vector<Envelope> & envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+			internal::Resources::m_queue.Push(envs);
 			for (Envelope & e : envs)
 				e.OpenSealedEnvelope();
 		}

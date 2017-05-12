@@ -48,22 +48,30 @@ namespace Nova {
 
 	//Starts the job system. Pass in a callable object and some parameters.
 	template <typename Callable, typename ... Params>
-	static void Init(Callable callable, Params ... args) {
-		Init(std::thread::hardware_concurrency(), callable, args...);
+	static void Start(Callable callable, Params ... args) {
+		Start(std::thread::hardware_concurrency(), callable, args...);
 	}
 
 	//Starts the job system. Pass in a callable object and some parameters.
 	template <typename Callable, typename ... Params>
-	static void Init(unsigned threadCount, Callable callable, Params ... args) {
+	static void Start(unsigned threadCount, Callable callable, Params ... args) {
+		using namespace internal;
+
 		//create threads
-		std::vector<internal::WorkerThread> threads;
+		std::vector<WorkerThread> threads;
+
 		threads.resize(threadCount - 1);
 
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
 		Push(MakeJob(callable, args...));
 
-		//main thread works too
-		internal::WorkerThread::JobLoop();
+		WorkerThread::JobLoop();
+
+		/*for (unsigned c = 0; c < WorkerThread::GetThreadCount() - 1; c++)
+			Push(MakeJob(&WorkerThread::KillWorker));
+
+		for (WorkerThread& w : threads)
+			w.Join();*/
 	}
 }

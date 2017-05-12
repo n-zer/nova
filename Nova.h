@@ -6,7 +6,7 @@
 #include "Globals.h"
 #include "Job.h"
 #include "WorkerThread.h"
-#include "blockingconcurrentqueue.h"
+#include "QueueWrapper.h"
 
 namespace Nova {
 	//Queues a set of Runnables
@@ -43,7 +43,7 @@ namespace Nova {
 
 	template<unsigned N>
 	void Push(std::array<Envelope, N> & envs) {
-		internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+		internal::Resources::m_queue.Push(envs);
 	}
 
 	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
@@ -67,7 +67,7 @@ namespace Nova {
 	namespace internal{
 		class Resources {
 		public:
-			static moodycamel::BlockingConcurrentQueue<Envelope> m_queue;
+			static QueueWrapper<Envelope> m_queue;
 			static thread_local std::vector<LPVOID> m_availableFibers;
 			static thread_local SealedEnvelope * m_callTrigger;
 		};
@@ -172,7 +172,7 @@ namespace Nova {
 		void Push(internal::SealedEnvelope & se, std::array<Envelope, N> & envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			internal::Resources::m_queue.enqueue_bulk(envs.begin(), envs.size());
+			internal::Resources::m_queue.Push(envs);
 			for (Envelope & e : envs)
 				e.OpenSealedEnvelope();
 		}
