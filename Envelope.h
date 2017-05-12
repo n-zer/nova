@@ -20,12 +20,12 @@ namespace Nova {
 	public:
 		Envelope() {}
 
-		template<typename Runnable>
+		template <typename Runnable, typename = typename std::enable_if<!std::is_same<Runnable, Envelope>::value>::type>
 		Envelope(Runnable runnable)
 			: m_runFunc(&Envelope::RunAndDeleteRunnable<Runnable>), m_runnable(new Runnable(runnable)) {
 		}
 
-		template<typename Runnable>
+		template <typename Runnable, typename = typename std::enable_if<!std::is_same<Runnable, Envelope>::value>::type>
 		Envelope(Runnable * runnable)
 			: m_runFunc(&Envelope::RunRunnable<Runnable>), m_runnable(runnable) {
 		}

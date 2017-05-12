@@ -96,7 +96,7 @@ namespace Nova {
 		template<typename Callable, typename ... Params, unsigned int N>
 		static void PackRunnable(std::array<Envelope, N> & envs, unsigned & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> & j) {
 			std::vector<Envelope> splitEnvs = SplitBatchJob(j);
-			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
+			batchEnvs.insert(batchEnvs.end(), splitEnvs.begin(), splitEnvs.end());
 		}
 
 		//Breaks a Runnable off the parameter pack and recurses
