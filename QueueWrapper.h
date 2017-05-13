@@ -58,12 +58,12 @@ public:
 	}
 
 	template<unsigned N>
-	void Push(std::array<T, N> items) {
+	void Push(std::array<T, N> && items) {
 		WakeAllConditionVariable(&s_cv);
 		m_queue.enqueue_bulk(items.begin(), items.size());
 	}
 
-	void Push(std::vector<T> items) {
+	void Push(std::vector<T> && items) {
 		WakeAllConditionVariable(&s_cv);
 		m_queue.enqueue_bulk(items.begin(), items.size());
 	}

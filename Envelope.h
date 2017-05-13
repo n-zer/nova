@@ -20,14 +20,14 @@ namespace Nova {
 	public:
 		Envelope() {}
 
-		template <typename Runnable, typename = typename std::enable_if<!std::is_same<Runnable, Envelope>::value>::type>
-		Envelope(Runnable runnable)
-			: m_runFunc(&Envelope::RunAndDeleteRunnable<Runnable>), m_runnable(new Runnable(runnable)) {
+		template<typename Runnable,	std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
+		Envelope(Runnable&& runnable)
+			: m_runFunc(&Envelope::RunAndDeleteRunnable<std::decay_t<Runnable>>), m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))){
 		}
 
-		template <typename Runnable, typename = typename std::enable_if<!std::is_same<Runnable, Envelope>::value>::type>
+		template<typename Runnable,	std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
 		Envelope(Runnable * runnable)
-			: m_runFunc(&Envelope::RunRunnable<Runnable>), m_runnable(runnable) {
+			: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_runnable(runnable) {
 		}
 
 		Envelope(void(*runFunc)(void*), void * runnable)
