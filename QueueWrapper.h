@@ -2,9 +2,14 @@
 #include <array>
 #include <vector>
 #include <Windows.h>
-#include "concurrentqueue.h"
+#include "QueueAdaptors.h"
 
 #define SPIN_COUNT 10000
+
+#ifndef NOVA_QUEUE_TYPE
+#define NOVA_QUEUE_TYPE MoodycamelAdaptor
+#endif // !NOVA_QUEUE_TYPE
+
 
 class CriticalLock{
 public:
@@ -44,7 +49,7 @@ public:
 
 	void Pop(T& item) {
 		unsigned counter = 0;
-		while (!m_queue.try_dequeue(item)) {
+		while (!m_queue.Pop(item)) {
 			if (counter++ > SPIN_COUNT) {
 				counter = 0;
 				SleepConditionVariableCS(&s_cv, &s_cs.cs, INFINITE);
@@ -53,23 +58,18 @@ public:
 	}
 
 	void Push(T& item) {
+		m_queue.Push(item);
 		WakeConditionVariable(&s_cv);
-		m_queue.enqueue(item);
 	}
 
-	template<unsigned N>
-	void Push(std::array<T, N> && items) {
+	template<typename Collection>
+	void Push(Collection && items) {
+		m_queue.Push(std::forward<decltype(items)>(items));
 		WakeAllConditionVariable(&s_cv);
-		m_queue.enqueue_bulk(items.begin(), items.size());
-	}
-
-	void Push(std::vector<T> && items) {
-		WakeAllConditionVariable(&s_cv);
-		m_queue.enqueue_bulk(items.begin(), items.size());
 	}
 
 private:
-	moodycamel::ConcurrentQueue<T> m_queue;
+	NOVA_QUEUE_TYPE<T> m_queue;
 	static CONDITION_VARIABLE s_cv;
 	static thread_local CriticalWrapper s_cs;
 	static thread_local CriticalLock s_cl;

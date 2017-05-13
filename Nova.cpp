@@ -4,12 +4,11 @@
 
 namespace Nova {
 	void Push(Envelope&& e) {
-		Push(std::forward<Envelope>(e));
+		internal::Resources::m_queue.Push(std::forward<Envelope>(e));
 	}
 
 	void Push(std::vector<Envelope> && envs) {
-		using namespace internal;
-		Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
+		internal::Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
 	}
 
 	namespace internal{
