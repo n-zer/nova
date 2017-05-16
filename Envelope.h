@@ -8,7 +8,7 @@ namespace Nova {
 		class SealedEnvelope {
 		public:
 			SealedEnvelope() {}
-			SealedEnvelope(Envelope e);
+			SealedEnvelope(Envelope & e);
 			void Open();
 		private:
 			struct Seal;
@@ -19,6 +19,25 @@ namespace Nova {
 	class Envelope {
 	public:
 		Envelope() {}
+		Envelope(const Envelope &) = delete;
+		Envelope operator=(const Envelope &) = delete;
+		Envelope(Envelope && e) noexcept {
+			//To-do, still need to delete the current object's runnable
+			m_runFunc = e.m_runFunc;
+			m_runnable = e.m_runnable;
+			m_sealedEnvelope = std::move(e.m_sealedEnvelope);
+			e.m_runFunc = &Envelope::NoOp;
+			e.m_runnable = nullptr;
+		}
+		Envelope& operator=(Envelope && e) noexcept {
+			//To-do, still need to delete the current object's runnable
+			m_runFunc = e.m_runFunc;
+			m_runnable = e.m_runnable;
+			m_sealedEnvelope = std::move(e.m_sealedEnvelope);
+			e.m_runFunc = &Envelope::NoOp;
+			e.m_runnable = nullptr;
+			return *this;
+		}
 
 		template<typename Runnable,	std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
 		Envelope(Runnable&& runnable)
@@ -58,6 +77,8 @@ namespace Nova {
 			delete rnb;
 		}
 
+		static void NoOp(void * runnable) {};
+
 	private:
 		void(*m_runFunc)(void *);
 		void * m_runnable;
@@ -65,8 +86,8 @@ namespace Nova {
 	};
 
 	struct internal::SealedEnvelope::Seal {
-		Seal(Envelope e)
-			: m_env(e) {
+		Seal(Envelope & e)
+			: m_env(std::move(e)) {
 		}
 
 		~Seal() {

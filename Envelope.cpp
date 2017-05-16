@@ -8,7 +8,7 @@ namespace Nova {
 		m_sealedEnvelope.Open();
 	}
 
-	internal::SealedEnvelope::SealedEnvelope(Envelope e)
+	internal::SealedEnvelope::SealedEnvelope(Envelope & e)
 		: m_seal(std::make_shared<Seal>(e)) {
 	}
 

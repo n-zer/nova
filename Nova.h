@@ -89,14 +89,14 @@ namespace Nova {
 		//Loads a Runnable into an envelope and pushes it to the given vector
 		template<typename Runnable, unsigned int N>
 		static void PackRunnable(std::array<Envelope, N> & envs, unsigned & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
-			envs[index++] = { std::forward<Runnable>(runnable) };
+			envs[index++] = std::move(Envelope{ std::forward<Runnable>(runnable) });
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
 		template<typename Callable, typename ... Params, unsigned int N>
 		static void PackRunnable(std::array<Envelope, N> & envs, unsigned & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
 			std::vector<Envelope> splitEnvs = SplitBatchJob(std::forward<decltype(j)>(j));
-			batchEnvs.insert(batchEnvs.end(), splitEnvs.begin(), splitEnvs.end());
+			batchEnvs.insert(batchEnvs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
 		}
 
 		//Breaks a Runnable off the parameter pack and recurses
