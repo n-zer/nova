@@ -132,7 +132,7 @@ namespace Nova {
 			std::vector<Envelope> jobs;
 			jobs.reserve(j.GetSections());
 			auto* basePtr = new BatchJob<Callable, Params...>(std::forward<decltype(j)>(j));
-			SealedEnvelope se(Envelope(&Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
+			SealedEnvelope se(Envelope(&Envelope::NoOp, &Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
 			for (unsigned int section = 0; section < j.GetSections(); section++) {
 				jobs.emplace_back(basePtr);
 				jobs[section].AddSealedEnvelope(se);
@@ -193,7 +193,7 @@ namespace Nova {
 				Nova::Push(MakeJob(&FinishCalledJob, currentFiber));
 			};
 
-			SealedEnvelope se(Envelope(&Envelope::RunRunnable<decltype(completionJob)>, &completionJob));
+			SealedEnvelope se(Envelope{ &completionJob });
 			Resources::m_callTrigger = &se;
 
 			Push(se, std::forward<decltype(envs)>(envs));

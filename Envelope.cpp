@@ -12,6 +12,10 @@ namespace Nova {
 		: m_seal(std::make_shared<Seal>(e)) {
 	}
 
+	internal::SealedEnvelope::SealedEnvelope(Envelope && e)
+		: m_seal(std::make_shared<Seal>(std::forward<Envelope>(e))) {
+	}
+
 	void internal::SealedEnvelope::Open() {
 		m_seal.reset();
 	}

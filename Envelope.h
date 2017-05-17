@@ -9,6 +9,7 @@ namespace Nova {
 		public:
 			SealedEnvelope() {}
 			SealedEnvelope(Envelope & e);
+			SealedEnvelope(Envelope && e);
 			void Open();
 		private:
 			struct Seal;
@@ -19,29 +20,23 @@ namespace Nova {
 	class Envelope {
 	public:
 		Envelope() {}
+		~Envelope() {
+			m_deleteFunc(m_runnable);
+		}
 		Envelope(const Envelope &) = delete;
 		Envelope operator=(const Envelope &) = delete;
 		Envelope(Envelope && e) noexcept {
-			//To-do, still need to delete the current object's runnable
-			m_runFunc = e.m_runFunc;
-			m_runnable = e.m_runnable;
-			m_sealedEnvelope = std::move(e.m_sealedEnvelope);
-			e.m_runFunc = &Envelope::NoOp;
-			e.m_runnable = nullptr;
+			Move(std::forward<Envelope>(e));
 		}
 		Envelope& operator=(Envelope && e) noexcept {
-			//To-do, still need to delete the current object's runnable
-			m_runFunc = e.m_runFunc;
-			m_runnable = e.m_runnable;
-			m_sealedEnvelope = std::move(e.m_sealedEnvelope);
-			e.m_runFunc = &Envelope::NoOp;
-			e.m_runnable = nullptr;
+			m_deleteFunc(m_runnable);
+			Move(std::forward<Envelope>(e));
 			return *this;
 		}
 
 		template<typename Runnable,	std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
 		Envelope(Runnable&& runnable)
-			: m_runFunc(&Envelope::RunAndDeleteRunnable<std::decay_t<Runnable>>), m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))){
+			: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_deleteFunc(&Envelope::DeleteRunnable<std::decay_t<Runnable>>), m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))){
 		}
 
 		template<typename Runnable,	std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
@@ -49,8 +44,8 @@ namespace Nova {
 			: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_runnable(runnable) {
 		}
 
-		Envelope(void(*runFunc)(void*), void * runnable)
-			: m_runFunc(runFunc), m_runnable(runnable) {
+		Envelope(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
+			: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
 		}
 
 		void operator () () const {
@@ -70,18 +65,22 @@ namespace Nova {
 			delete static_cast<Runnable*>(runnable);
 		}
 
-		template <typename Runnable>
-		static void RunAndDeleteRunnable(void * runnable) {
-			Runnable* rnb = static_cast<Runnable*>(runnable);
-			rnb->operator()();
-			delete rnb;
-		}
-
 		static void NoOp(void * runnable) {};
 
 	private:
-		void(*m_runFunc)(void *);
-		void * m_runnable;
+		void Move(Envelope && e) noexcept {
+			m_runFunc = e.m_runFunc;
+			m_deleteFunc = e.m_deleteFunc;
+			m_runnable = e.m_runnable;
+			m_sealedEnvelope = std::move(e.m_sealedEnvelope);
+			e.m_runFunc = &Envelope::NoOp;
+			e.m_deleteFunc = &Envelope::NoOp;
+			e.m_runnable = nullptr;
+		}
+
+		void(*m_runFunc)(void *) = &Envelope::NoOp;
+		void(*m_deleteFunc)(void*) = &Envelope::NoOp;
+		void * m_runnable = nullptr;
 		internal::SealedEnvelope m_sealedEnvelope;
 	};
 
