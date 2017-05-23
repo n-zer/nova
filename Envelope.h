@@ -11,7 +11,9 @@ namespace Nova {
 		SealedEnvelope(internal::Envelope && e);
 		template<typename Runnable>
 		SealedEnvelope(Runnable runnable);
-		void Open();
+		void Open() {
+			m_seal.reset();
+		}
 	private:
 		struct Seal;
 		std::shared_ptr<Seal> m_seal;
@@ -53,8 +55,12 @@ namespace Nova {
 				m_runFunc(m_runnable);
 			}
 
-			void AddSealedEnvelope(SealedEnvelope & se);
-			void OpenSealedEnvelope();
+			void AddSealedEnvelope(SealedEnvelope & se) {
+				m_sealedEnvelope = se;
+			}
+			void OpenSealedEnvelope() {
+				m_sealedEnvelope.Open();
+			}
 
 			template <typename Runnable>
 			static void RunRunnable(void * runnable) {
@@ -106,5 +112,13 @@ namespace Nova {
 	template<typename Runnable>
 	SealedEnvelope::SealedEnvelope(Runnable runnable)
 		: m_seal(std::make_shared<Seal>(std::forward<Runnable>(runnable))) {
+	}
+
+	inline SealedEnvelope::SealedEnvelope(internal::Envelope & e)
+		: m_seal(std::make_shared<Seal>(e)) {
+	}
+
+	inline SealedEnvelope::SealedEnvelope(internal::Envelope && e)
+		: m_seal(std::make_shared<Seal>(std::forward<internal::Envelope>(e))) {
 	}
 }

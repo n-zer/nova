@@ -55,26 +55,36 @@ namespace Nova {
 	namespace internal{
 		class Resources {
 		public:
-			static QueueWrapper<Envelope> m_queueWrapper;
-			static thread_local std::vector<LPVOID> m_availableFibers;
-			static thread_local SealedEnvelope * m_callTrigger;
+			//Meyers singletons
+			static QueueWrapper<Envelope>& QueueWrapper() {
+				static Nova::internal::QueueWrapper<Nova::internal::Envelope> qw;
+				return qw;
+			}
+			static std::vector<LPVOID>& AvailableFibers() {
+				static thread_local std::vector<LPVOID> af;
+				return af;
+			}
+			static SealedEnvelope *& CallTrigger() {
+				static thread_local SealedEnvelope * ct;
+				return ct;
+			}
 		};
 
 		//Queues an envelope
 		template<bool ToMain>
 		void Push(internal::Envelope&& e) {
-			internal::Resources::m_queueWrapper.Push<ToMain>(std::forward<internal::Envelope>(e));
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<internal::Envelope>(e));
 		}
 
 		//Queues a vector of envelopes
 		template<bool ToMain>
 		void Push(std::vector<internal::Envelope> && envs) {
-			internal::Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 		template<bool ToMain, unsigned N>
 		void Push(std::array<internal::Envelope, N> && envs) {
-			internal::Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
@@ -177,7 +187,7 @@ namespace Nova {
 		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 		//Queues a vector of envelopes
@@ -185,13 +195,17 @@ namespace Nova {
 		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 		//Attempts to grab an envelope from the queue
-		void Pop(Envelope &e);
+		inline void Pop(Envelope &e) {
+			Resources::QueueWrapper().Pop(e);
+		}
 
-		void PopMain(Envelope &e);
+		inline void PopMain(Envelope &e) {
+			Resources::QueueWrapper().PopMain(e);
+		}
 
 		template<bool ToMain, bool FromMain, unsigned int N>
 		void Call(std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
@@ -204,7 +218,7 @@ namespace Nova {
 			};
 
 			SealedEnvelope se(Envelope{ &completionJob });
-			Resources::m_callTrigger = &se;
+			Resources::CallTrigger() = &se;
 
 			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
 
@@ -212,9 +226,9 @@ namespace Nova {
 
 			LPVOID newFiber;
 
-			if (Resources::m_availableFibers.size() > 0) {
-				newFiber = Resources::m_availableFibers[Resources::m_availableFibers.size() - 1];
-				Resources::m_availableFibers.pop_back();
+			if (Resources::AvailableFibers().size() > 0) {
+				newFiber = Resources::AvailableFibers()[Resources::AvailableFibers().size() - 1];
+				Resources::AvailableFibers().pop_back();
 			}
 			else
 				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)OpenCallTriggerAndEnterJobLoop, nullptr);
@@ -222,11 +236,21 @@ namespace Nova {
 			SwitchToFiber(newFiber);
 		}
 
-		void FinishCalledJob(LPVOID);
+		inline void FinishCalledJob(LPVOID oldFiber) {
+			//Mark for re-use
+			Resources::AvailableFibers().push_back(GetCurrentFiber());
+			SwitchToFiber(oldFiber);
+
+			//Re-use starts here
+			Resources::CallTrigger()->Open();
+		}
 
 		//Starting point for a new fiber, queues a list of jobs and immediately enters the job loop.
 		//This is used by the Call- functions to delay queueing of jobs until after the calling fiber
 		//has been suspended.
-		void OpenCallTriggerAndEnterJobLoop(LPVOID jobPtr);
+		inline void OpenCallTriggerAndEnterJobLoop(LPVOID jobPtr) {
+			Resources::CallTrigger()->Open();
+			WorkerThread::JobLoop();
+		}
 	}
 }
