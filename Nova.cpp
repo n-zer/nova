@@ -3,11 +3,11 @@
 #include <Windows.h>
 
 namespace Nova {
-	void Push(Envelope&& e) {
-		internal::Resources::m_queue.Push(std::forward<Envelope>(e));
+	void Push(internal::Envelope&& e) {
+		internal::Resources::m_queue.Push(std::forward<internal::Envelope>(e));
 	}
 
-	void Push(std::vector<Envelope> && envs) {
+	void Push(std::vector<internal::Envelope> && envs) {
 		internal::Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
 	}
 

@@ -1,22 +1,24 @@
 #include "Envelope.h"
 namespace Nova {
-	void Envelope::AddSealedEnvelope(internal::SealedEnvelope & se) {
-		m_sealedEnvelope = se;
+	namespace internal{
+		void Envelope::AddSealedEnvelope(SealedEnvelope & se) {
+			m_sealedEnvelope = se;
+		}
+
+		void Envelope::OpenSealedEnvelope() {
+			m_sealedEnvelope.Open();
+		}
 	}
 
-	void Envelope::OpenSealedEnvelope() {
-		m_sealedEnvelope.Open();
-	}
-
-	internal::SealedEnvelope::SealedEnvelope(Envelope & e)
+	SealedEnvelope::SealedEnvelope(internal::Envelope & e)
 		: m_seal(std::make_shared<Seal>(e)) {
 	}
 
-	internal::SealedEnvelope::SealedEnvelope(Envelope && e)
-		: m_seal(std::make_shared<Seal>(std::forward<Envelope>(e))) {
+	SealedEnvelope::SealedEnvelope(internal::Envelope && e)
+		: m_seal(std::make_shared<Seal>(std::forward<internal::Envelope>(e))) {
 	}
 
-	void internal::SealedEnvelope::Open() {
+	void SealedEnvelope::Open() {
 		m_seal.reset();
 	}
 }

@@ -23,25 +23,24 @@ namespace Nova {
 
 	//Queues a set of Runnables, invoking the envelope when all have finished
 	template<typename ... Runnables>
-	static void Push(Envelope & next, Runnables&&... runnables) {
+	static void Push(SealedEnvelope & next, Runnables&&... runnables) {
 		using namespace internal;
-		SealedEnvelope se(next);
 		std::array<Envelope, sizeof...(runnables) - BatchCount<Runnables...>::value> envs;
 		std::vector<Envelope> batchEnvs;
 		batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
 		PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-		Push(se, std::move(envs));
-		Push(se, std::move(batchEnvs));
+		Push(next, std::move(envs));
+		Push(next, std::move(batchEnvs));
 	}
 
 	//Queues an envelope
-	void Push(Envelope&& e);
+	void Push(internal::Envelope&& e);
 
 	//Queues a vector of envelopes
-	void Push(std::vector<Envelope> && envs);
+	void Push(std::vector<internal::Envelope> && envs);
 
 	template<unsigned N>
-	void Push(std::array<Envelope, N> && envs) {
+	void Push(std::array<internal::Envelope, N> && envs) {
 		internal::Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
 	}
 
@@ -72,7 +71,7 @@ namespace Nova {
 			static thread_local SealedEnvelope * m_callTrigger;
 		};
 
-		//Breaks a Runnable off the parameter pack and recurses
+		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
 		template<typename ... Runnables, unsigned int N>
 		static void PackRunnable(std::array<Envelope, N> & envs, std::vector<Envelope> & batchEnvs, Runnables&&... runnables) {
 			unsigned int index(0);
