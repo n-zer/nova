@@ -9,24 +9,38 @@
 #include "QueueWrapper.h"
 
 namespace Nova {
-	template<typename ... Params>
-	static void Push(Params&&... params) {
-		internal::Push<false>(std::forward<Params>(params)...);
+	//Queues a set of Runnables
+	template<bool ToMain = false, typename ... Runnables>
+	static void Push(Runnables&&... runnables) {
+		using namespace internal;
+		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
+		std::vector<Envelope> batchEnvs;
+		batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
+		PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
+		Push<ToMain>(std::move(envs));
+		Push<ToMain>(std::move(batchEnvs));
 	}
 
-	template<typename ... Params>
-	static void PushMain(Params&&... params) {
-		internal::Push<true>(std::forward<Params>(params)...);
+	//Queues a set of Runnables, invoking the envelope when all have finished
+	template<bool ToMain = false, typename ... Runnables>
+	static void Push(SealedEnvelope & next, Runnables&&... runnables) {
+		using namespace internal;
+		std::array<Envelope, sizeof...(runnables)-BatchCount<Runnables...>::value> envs;
+		std::vector<Envelope> batchEnvs;
+		batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
+		PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
+		Push<ToMain>(next, std::move(envs));
+		Push<ToMain>(next, std::move(batchEnvs));
 	}
 
 	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
-	template<typename ... Runnables>
+	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
 	static void Call(Runnables&... runnables) {
 		using namespace internal;
 		std::array<Envelope, sizeof...(Runnables) - BatchCount<Runnables...>::value> envs;
 		std::vector<Envelope> batchEnvs;
 		PackRunnableNoAlloc(envs, batchEnvs, runnables...);
-		Call(std::move(envs), std::move(batchEnvs));
+		Call<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
 	}
 
 	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
@@ -45,30 +59,6 @@ namespace Nova {
 			static thread_local std::vector<LPVOID> m_availableFibers;
 			static thread_local SealedEnvelope * m_callTrigger;
 		};
-
-		//Queues a set of Runnables
-		template<bool ToMain, typename ... Runnables>
-		static void Push(Runnables&&... runnables) {
-			using namespace internal;
-			std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
-			std::vector<Envelope> batchEnvs;
-			batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
-			PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-			Push<ToMain>(std::move(envs));
-			Push<ToMain>(std::move(batchEnvs));
-		}
-
-		//Queues a set of Runnables, invoking the envelope when all have finished
-		template<bool ToMain, typename ... Runnables>
-		static void Push(SealedEnvelope & next, Runnables&&... runnables) {
-			using namespace internal;
-			std::array<Envelope, sizeof...(runnables)-BatchCount<Runnables...>::value> envs;
-			std::vector<Envelope> batchEnvs;
-			batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
-			PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-			Push<ToMain>(next, std::move(envs));
-			Push<ToMain>(next, std::move(batchEnvs));
-		}
 
 		//Queues an envelope
 		template<bool ToMain>
@@ -207,22 +197,22 @@ namespace Nova {
 
 		void PopMain(Envelope &e);
 
-		template<unsigned int N>
+		template<bool ToMain, bool FromMain, unsigned int N>
 		void Call(std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
 			if (envs.size() == 0 && batchEnvs.size() == 0)
 				throw std::runtime_error("Attempting to call no Envelopes");
 
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				Nova::internal::Push<false>(MakeJob(&FinishCalledJob, currentFiber));
+				Nova::internal::Push<FromMain>(MakeJob(&FinishCalledJob, currentFiber));
 			};
 
 			SealedEnvelope se(Envelope{ &completionJob });
 			Resources::m_callTrigger = &se;
 
-			Push<false>(se, std::forward<decltype(envs)>(envs));
+			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
 
-			Push<false>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
+			Push<ToMain>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
 
 			LPVOID newFiber;
 
