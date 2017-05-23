@@ -49,7 +49,7 @@ public:
 
 	void Pop(T& item) {
 		unsigned counter = 0;
-		while (!m_queue.Pop(item)) {
+		while (!m_globalQueue.Pop(item)) {
 			if (counter++ > SPIN_COUNT) {
 				counter = 0;
 				SleepConditionVariableCS(&s_cv, &s_cs.cs, INFINITE);
@@ -57,26 +57,56 @@ public:
 		}
 	}
 
-	void Push(T& item) {
-		m_queue.Push(item);
-		WakeConditionVariable(&s_cv);
+	void PopMain(T& item) {
+		unsigned counter = 0;
+		while (!m_globalQueue.Pop(item) && !m_mainQueue.Pop(item)) {
+			if (counter++ > SPIN_COUNT) {
+				counter = 0;
+				SleepConditionVariableCS(&s_mainCV, &s_cs.cs, INFINITE);
+			}
+		}
 	}
 
-	template<typename Collection>
+	template<bool ToMain, std::enable_if_t<!ToMain, int> = 0>
+	void Push(T&& item) {
+		m_globalQueue.Push(std::forward<T>(item));
+		WakeConditionVariable(&s_cv);
+		WakeConditionVariable(&s_mainCV);
+	}
+
+	template<bool ToMain, typename Collection, std::enable_if_t<!ToMain, int> = 0>
 	void Push(Collection && items) {
-		m_queue.Push(std::forward<decltype(items)>(items));
+		m_globalQueue.Push(std::forward<decltype(items)>(items));
 		WakeAllConditionVariable(&s_cv);
+		WakeConditionVariable(&s_mainCV);
+	}
+
+	template<bool ToMain, std::enable_if_t<ToMain, int> = 0>
+	void Push(T&& item) {
+		m_mainQueue.Push(std::forward<T>(item));
+		WakeConditionVariable(&s_mainCV);
+	}
+
+	template<bool ToMain, typename Collection, std::enable_if_t<ToMain, int> = 0>
+	void Push(Collection && items) {
+		m_mainQueue.Push(std::forward<decltype(items)>(items));
+		WakeConditionVariable(&s_mainCV);
 	}
 
 private:
-	NOVA_QUEUE_TYPE<T> m_queue;
+	NOVA_QUEUE_TYPE<T> m_globalQueue;
+	NOVA_QUEUE_TYPE<T> m_mainQueue;
 	static CONDITION_VARIABLE s_cv;
+	static CONDITION_VARIABLE s_mainCV;
 	static thread_local CriticalWrapper s_cs;
 	static thread_local CriticalLock s_cl;
 };
 
 template<typename T>
 CONDITION_VARIABLE QueueWrapper<T>::s_cv;
+
+template<typename T>
+CONDITION_VARIABLE QueueWrapper<T>::s_mainCV;
 
 template<typename T>
 thread_local CriticalWrapper QueueWrapper<T>::s_cs;

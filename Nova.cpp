@@ -3,21 +3,17 @@
 #include <Windows.h>
 
 namespace Nova {
-	void Push(internal::Envelope&& e) {
-		internal::Resources::m_queue.Push(std::forward<internal::Envelope>(e));
-	}
-
-	void Push(std::vector<internal::Envelope> && envs) {
-		internal::Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
-	}
-
 	namespace internal{
-		QueueWrapper<Envelope> Resources::m_queue;
+		QueueWrapper<Envelope> Resources::m_queueWrapper;
 		thread_local std::vector<LPVOID> Resources::m_availableFibers;
 		thread_local SealedEnvelope * Resources::m_callTrigger;
 
 		void Pop(Envelope &e) {
-			Resources::m_queue.Pop(e);
+			Resources::m_queueWrapper.Pop(e);
+		}
+
+		void PopMain(Envelope &e) {
+			Resources::m_queueWrapper.PopMain(e);
 		}
 
 		void OpenCallTriggerAndEnterJobLoop(LPVOID jobPtr) {
@@ -32,14 +28,6 @@ namespace Nova {
 
 			//Re-use starts here
 			Resources::m_callTrigger->Open();
-		}
-
-		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
-			for (Envelope & e : envs)
-				e.OpenSealedEnvelope();
 		}
 	}
 }

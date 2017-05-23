@@ -9,39 +9,14 @@
 #include "QueueWrapper.h"
 
 namespace Nova {
-	//Queues a set of Runnables
-	template<typename ... Runnables>
-	static void Push(Runnables&&... runnables) {
-		using namespace internal;
-		std::array<Envelope, sizeof...(Runnables) - BatchCount<Runnables...>::value> envs;
-		std::vector<Envelope> batchEnvs;
-		batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
-		PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-		Push(std::move(envs));
-		Push(std::move(batchEnvs));
+	template<typename ... Params>
+	static void Push(Params&&... params) {
+		internal::Push<false>(std::forward<Params>(params)...);
 	}
 
-	//Queues a set of Runnables, invoking the envelope when all have finished
-	template<typename ... Runnables>
-	static void Push(SealedEnvelope & next, Runnables&&... runnables) {
-		using namespace internal;
-		std::array<Envelope, sizeof...(runnables) - BatchCount<Runnables...>::value> envs;
-		std::vector<Envelope> batchEnvs;
-		batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
-		PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-		Push(next, std::move(envs));
-		Push(next, std::move(batchEnvs));
-	}
-
-	//Queues an envelope
-	void Push(internal::Envelope&& e);
-
-	//Queues a vector of envelopes
-	void Push(std::vector<internal::Envelope> && envs);
-
-	template<unsigned N>
-	void Push(std::array<internal::Envelope, N> && envs) {
-		internal::Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
+	template<typename ... Params>
+	static void PushMain(Params&&... params) {
+		internal::Push<true>(std::forward<Params>(params)...);
 	}
 
 	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
@@ -66,10 +41,51 @@ namespace Nova {
 	namespace internal{
 		class Resources {
 		public:
-			static QueueWrapper<Envelope> m_queue;
+			static QueueWrapper<Envelope> m_queueWrapper;
 			static thread_local std::vector<LPVOID> m_availableFibers;
 			static thread_local SealedEnvelope * m_callTrigger;
 		};
+
+		//Queues a set of Runnables
+		template<bool ToMain, typename ... Runnables>
+		static void Push(Runnables&&... runnables) {
+			using namespace internal;
+			std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
+			std::vector<Envelope> batchEnvs;
+			batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
+			PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
+			Push<ToMain>(std::move(envs));
+			Push<ToMain>(std::move(batchEnvs));
+		}
+
+		//Queues a set of Runnables, invoking the envelope when all have finished
+		template<bool ToMain, typename ... Runnables>
+		static void Push(SealedEnvelope & next, Runnables&&... runnables) {
+			using namespace internal;
+			std::array<Envelope, sizeof...(runnables)-BatchCount<Runnables...>::value> envs;
+			std::vector<Envelope> batchEnvs;
+			batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
+			PackRunnable(envs, batchEnvs, std::forward<Runnables...>(runnables...));
+			Push<ToMain>(next, std::move(envs));
+			Push<ToMain>(next, std::move(batchEnvs));
+		}
+
+		//Queues an envelope
+		template<bool ToMain>
+		void Push(internal::Envelope&& e) {
+			internal::Resources::m_queueWrapper.Push<ToMain>(std::forward<internal::Envelope>(e));
+		}
+
+		//Queues a vector of envelopes
+		template<bool ToMain>
+		void Push(std::vector<internal::Envelope> && envs) {
+			internal::Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		template<bool ToMain, unsigned N>
+		void Push(std::array<internal::Envelope, N> && envs) {
+			internal::Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
 
 		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
 		template<typename ... Runnables, unsigned int N>
@@ -167,20 +183,29 @@ namespace Nova {
 			static const int value = BatchCount<Args...>::value;
 		};
 
-		template<unsigned N>
+		template<bool ToMain, unsigned N>
 		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			Resources::m_queue.Push(std::forward<decltype(envs)>(envs));
+			Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
 			for (Envelope & e : envs)
 				e.OpenSealedEnvelope();
 		}
 
 		//Queues a vector of envelopes
-		void Push(SealedEnvelope & se, std::vector<Envelope> && envs);
+		template<bool ToMain>
+		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
+			for (Envelope & e : envs)
+				e.OpenSealedEnvelope();
+		}
 
 		//Attempts to grab an envelope from the queue
 		void Pop(Envelope &e);
+
+		void PopMain(Envelope &e);
 
 		template<unsigned int N>
 		void Call(std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
@@ -189,15 +214,15 @@ namespace Nova {
 
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				Nova::Push(MakeJob(&FinishCalledJob, currentFiber));
+				Nova::internal::Push<false>(MakeJob(&FinishCalledJob, currentFiber));
 			};
 
 			SealedEnvelope se(Envelope{ &completionJob });
 			Resources::m_callTrigger = &se;
 
-			Push(se, std::forward<decltype(envs)>(envs));
+			Push<false>(se, std::forward<decltype(envs)>(envs));
 
-			Push(se, std::forward<decltype(batchEnvs)>(batchEnvs));
+			Push<false>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
 
 			LPVOID newFiber;
 

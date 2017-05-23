@@ -17,7 +17,10 @@ namespace Nova {
 		void WorkerThread::JobLoop() {
 			while (s_running) {
 				Envelope e;
-				Pop(e);
+				if (WorkerThread::GetThreadId() == 0)
+					PopMain(e);
+				else
+					Pop(e);
 				e();
 			}
 		}
