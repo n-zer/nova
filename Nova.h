@@ -178,8 +178,6 @@ namespace Nova {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
 			Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
-			for (Envelope & e : envs)
-				e.OpenSealedEnvelope();
 		}
 
 		//Queues a vector of envelopes
@@ -188,8 +186,6 @@ namespace Nova {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
 			Resources::m_queueWrapper.Push<ToMain>(std::forward<decltype(envs)>(envs));
-			for (Envelope & e : envs)
-				e.OpenSealedEnvelope();
 		}
 
 		//Attempts to grab an envelope from the queue
