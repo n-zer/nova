@@ -13,7 +13,7 @@ public:
 		m_queueWrapper.enqueue(std::forward<T>(item));
 	}
 
-	template<unsigned N>
+	template<std::size_t N>
 	void Push(std::array<T, N> && items) {
 		m_queueWrapper.enqueue_bulk(std::make_move_iterator(std::begin(items)), items.size());
 	}

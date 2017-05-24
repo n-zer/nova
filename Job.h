@@ -44,7 +44,7 @@ namespace Nova {
 			}
 
 			void operator () () {
-				std::tuple<Params...> params = m_tuple;
+				std::tuple<Params...> params = this->m_tuple;
 				BatchIndex start = Start();
 				BatchIndex end = End();
 				float count = static_cast<float>(end - start);
@@ -54,7 +54,7 @@ namespace Nova {
 
 				Start(params) = newStart;
 				End(params) = end;
-				internal::apply(m_callable, params);
+				internal::apply(this->m_callable, params);
 			}
 
 			unsigned GetSections() const {
@@ -78,15 +78,15 @@ namespace Nova {
 			unsigned m_sections;
 
 			unsigned& Start() {
-				return Start(m_tuple);
+				return Start(this->m_tuple);
 			}
-			static unsigned& Start(decltype(m_tuple) & tuple) {
+			static unsigned& Start(std::tuple<Params...> & tuple) {
 				return std::get<internal::Index<BatchIndex, decltype(tuple)>::value>(tuple);
 			}
 			unsigned& End() {
-				return End(m_tuple);
+				return End(this->m_tuple);
 			}
-			static unsigned& End(decltype(m_tuple) & tuple) {
+			static unsigned& End(std::tuple<Params...> & tuple) {
 				return std::get<internal::Index<BatchIndex, decltype(tuple)>::value + 1>(tuple);
 			}
 		};

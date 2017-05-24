@@ -113,6 +113,6 @@ namespace Nova {
 		thread_local CriticalWrapper QueueWrapper<T>::s_cs;
 
 		template<typename T>
-		thread_local CriticalLock QueueWrapper<T>::s_cl(QueueWrapper<T>::s_cs);
+		thread_local CriticalLock QueueWrapper<T>::s_cl(QueueWrapper<T>::s_cs.cs);
 	}
 }
