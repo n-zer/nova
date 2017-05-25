@@ -109,7 +109,7 @@ namespace Nova {
 
 		//Loads a Runnable into an envelope and pushes it to the given vector
 		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable& runnable) {
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
 			envs[index++] = { &runnable };
 		}
 
@@ -122,7 +122,7 @@ namespace Nova {
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
 		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> & j) {
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
 			std::vector<Envelope> splitEnvs = SplitBatchJobNoAlloc(j);
 			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
 		}
