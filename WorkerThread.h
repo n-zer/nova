@@ -27,10 +27,10 @@ namespace Nova {
 					e();
 				}
 			}
-			static unsigned int GetThreadId() {
+			static std::size_t GetThreadId() {
 				return ThreadId();
 			}
-			static unsigned int GetThreadCount() {
+			static std::size_t GetThreadCount() {
 				return ThreadCount();
 			}
 			static void KillWorker() {
@@ -51,16 +51,16 @@ namespace Nova {
 			}
 
 			//Meyers singletons
-			static unsigned int & ThreadId() {
-				static thread_local unsigned int id = 0;
+			static std::size_t & ThreadId() {
+				static thread_local std::size_t id = 0;
 				return id;
 			}
 			static bool & Running() {
 				static thread_local bool running = true;
 				return running;
 			}
-			static unsigned int & ThreadCount() {
-				static unsigned int count = 0;
+			static std::size_t & ThreadCount() {
+				static std::size_t count = 0;
 				return count;
 			}
 			static std::mutex & InitLock() {

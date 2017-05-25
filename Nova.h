@@ -45,8 +45,8 @@ namespace Nova {
 
 	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
 	template<typename Callable, typename ... Params>
-	static void ParallelFor(Callable callable, BatchIndex start, BatchIndex end, Params... args) {
-		Call(MakeBatchJob([&](BatchIndex start, BatchIndex end, Params... args) {
+	static void ParallelFor(Callable callable, unsigned start, unsigned end, Params... args) {
+		Call(MakeBatchJob([&](unsigned start, unsigned end, Params... args) {
 			for (BatchIndex c = start; c < end; c++)
 				callable(c, args...);
 		}, start, end, args...));

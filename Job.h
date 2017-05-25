@@ -4,8 +4,6 @@
 #include <Windows.h>
 
 namespace Nova {
-	//Denotes the start or end of a batch job's range
-	typedef unsigned BatchIndex;
 
 	namespace internal{
 		template<typename Callable, typename ... Params>
@@ -23,7 +21,7 @@ namespace Nova {
 			}
 
 			//Ignore the squiggly, this is defined further down
-			operator BatchJob<Callable, Params...>() const;
+			//operator BatchJob<Callable, Params...>() const;
 
 			typedef BatchJob<Callable, Params...> batchType;
 
@@ -35,29 +33,33 @@ namespace Nova {
 		template <typename Callable, typename ... Params>
 		class BatchJob : public SimpleJob<Callable, Params...> {
 		public:
+			typedef internal::IntegralIndex<std::tuple<Params...>> tupleIntegralIndex;
+			typedef std::tuple_element_t<tupleIntegralIndex::value, std::tuple<Params...>> startIndexType;
+			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, std::tuple<Params...>> endIndexType;
+
 			BatchJob(Callable callable, Params... args)
-				: SimpleJob<Callable, Params...>(callable, args...), m_sections((std::min)(End() - Start(), internal::WorkerThread::GetThreadCount())) {
+				: SimpleJob<Callable, Params...>(callable, args...), m_sections((std::min)(static_cast<std::size_t>(End() - Start()), internal::WorkerThread::GetThreadCount())) {
 			}
 
-			BatchJob(SimpleJob<Callable, Params...> & sj)
-				: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), internal::WorkerThread::GetThreadCount())) {
-			}
+			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
+				: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), static_cast<indexType>(internal::WorkerThread::GetThreadCount()))) {
+			}*/
 
 			void operator () () {
 				std::tuple<Params...> params = this->m_tuple;
-				BatchIndex start = Start();
-				BatchIndex end = End();
+				std::size_t start = Start();
+				std::size_t end = End();
 				float count = static_cast<float>(end - start);
-				unsigned int section = InterlockedIncrement(&m_currentSection);
-				unsigned int newStart = static_cast<unsigned>(start + floorf(static_cast<float>(count*(section - 1) / m_sections)));
-				end = static_cast<unsigned int>(start + floorf(count*section / m_sections));
+				std::size_t section = static_cast<startIndexType>(InterlockedIncrement(&m_currentSection));
+				std::size_t newStart = static_cast<startIndexType>(start + floorf(static_cast<float>(count*(section - 1) / m_sections)));
+				end = static_cast<std::size_t>(start + floorf(count*section / m_sections));
 
-				Start(params) = newStart;
-				End(params) = end;
+				Start(params) = static_cast<startIndexType>(newStart);
+				End(params) = static_cast<endIndexType>(end);
 				internal::apply(this->m_callable, params);
 			}
 
-			unsigned GetSections() const {
+			std::size_t GetSections() const {
 				return m_sections;
 			}
 
@@ -75,26 +77,26 @@ namespace Nova {
 
 		private:
 			alignas(32) uint32_t m_currentSection = 0;
-			unsigned m_sections;
+			std::size_t m_sections;
 
-			unsigned& Start() {
+			startIndexType& Start() {
 				return Start(this->m_tuple);
 			}
-			static unsigned& Start(std::tuple<Params...> & tuple) {
-				return std::get<internal::Index<BatchIndex, decltype(tuple)>::value>(tuple);
+			static startIndexType& Start(std::tuple<Params...> & tuple) {
+				return std::get<tupleIntegralIndex::value>(tuple);
 			}
-			unsigned& End() {
+			endIndexType& End() {
 				return End(this->m_tuple);
 			}
-			static unsigned& End(std::tuple<Params...> & tuple) {
-				return std::get<internal::Index<BatchIndex, decltype(tuple)>::value + 1>(tuple);
+			static endIndexType& End(std::tuple<Params...> & tuple) {
+				return std::get<tupleIntegralIndex::value + 1>(tuple);
 			}
 		};
 
-		template<typename Callable, typename ...Params>
+		/*template<typename Callable, typename ...Params>
 		inline SimpleJob<Callable, Params...>::operator BatchJob<Callable, Params...>() const {
 			return BatchJob<Callable, Params...>(*this);
-		}
+		}*/
 	}
 
 	//Creates a job from a Callable object and parameters

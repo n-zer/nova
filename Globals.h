@@ -22,6 +22,47 @@ namespace Nova {
 				std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
 		}
 
+		template<typename ... Types>
+		struct FirstFromPack;
+
+		template<typename First, typename ... Rest>
+		struct FirstFromPack<First, Rest...> {
+			typedef First type;
+		};
+
+		template<typename Tuple>
+		struct CutFirstFromTuple;
+
+		template<typename T, typename ... Types>
+		struct CutFirstFromTuple<std::tuple<T, Types...>> {
+			typedef std::tuple<Types...> type;
+		};
+
+		template<typename Tuple>
+		using CutFirstFromTuple_t = typename CutFirstFromTuple<Tuple>::type;
+
+
+		template<class Tuple>
+		struct IntegralIndex;
+
+		template<bool Val, class Tuple>
+		struct IntegralIndexInner;
+
+		template<class T, class ... Types>
+		struct IntegralIndex<std::tuple<T, Types...>>{
+			static const std::size_t value = IntegralIndexInner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
+		};
+
+		template<typename Tuple>
+		struct IntegralIndexInner<true, Tuple> {
+			static const std::size_t value = 0;
+		};
+
+		template<typename T, typename ... Types>
+		struct IntegralIndexInner<false, std::tuple<T, Types...>> {
+			static const std::size_t value = 1 + IntegralIndex<std::tuple<Types...>>::value;
+		};
+
 		template <class T, class Tuple>
 		struct Index;
 
@@ -32,16 +73,6 @@ namespace Nova {
 
 		template <class T, class U, class... Types>
 		struct Index<T, std::tuple<U, Types...>> {
-			static const std::size_t value = 1 + Index<T, std::tuple<Types...>&>::value;
-		};
-
-		template <class T, class... Types>
-		struct Index<T, std::tuple<T, Types...>&> {
-			static const std::size_t value = 0;
-		};
-
-		template <class T, class U, class... Types>
-		struct Index<T, std::tuple<U, Types...>&> {
 			static const std::size_t value = 1 + Index<T, std::tuple<Types...>&>::value;
 		};
 	}
