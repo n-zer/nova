@@ -1,5 +1,7 @@
 #pragma once
 
+#define NOVA_QUEUE_TYPE MoodycamelAdaptor
+
 #include "concurrentqueue.h"
 
 template<typename T>
@@ -24,5 +26,3 @@ public:
 private:
 	moodycamel::ConcurrentQueue<T> m_queueWrapper;
 };
-
-#define NOVA_QUEUE_TYPE MoodycamelAdaptor

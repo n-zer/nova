@@ -4,6 +4,7 @@
 
 namespace Nova {
 	namespace internal{ class Envelope; }
+
 	class SealedEnvelope {
 	public:
 		SealedEnvelope() {}

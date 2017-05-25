@@ -6,6 +6,46 @@
 namespace Nova {
 
 	namespace internal{
+
+#pragma region Helpers
+
+		namespace detail {
+			template <class F, class Tuple, std::size_t... I>
+			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
+				return std::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+			}
+		}  // namespace detail
+
+		template <class F, class Tuple>
+		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
+			return detail::apply_impl(
+				std::forward<F>(f), std::forward<Tuple>(t),
+				std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
+		}
+
+		template<class Tuple>
+		struct IntegralIndex;
+
+		template<bool Val, class Tuple>
+		struct IntegralIndexInner;
+
+		template<class T, class ... Types>
+		struct IntegralIndex<std::tuple<T, Types...>> {
+			static const std::size_t value = IntegralIndexInner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
+		};
+
+		template<typename Tuple>
+		struct IntegralIndexInner<true, Tuple> {
+			static const std::size_t value = 0;
+		};
+
+		template<typename T, typename ... Types>
+		struct IntegralIndexInner<false, std::tuple<T, Types...>> {
+			static const std::size_t value = 1 + IntegralIndex<std::tuple<Types...>>::value;
+		};
+
+#pragma endregion
+
 		template<typename Callable, typename ... Params>
 		class BatchJob;
 

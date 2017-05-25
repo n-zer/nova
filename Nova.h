@@ -3,7 +3,6 @@
 #include <vector>
 #include <array>
 #include "Envelope.h"
-#include "Globals.h"
 #include "Job.h"
 #include "WorkerThread.h"
 #include "QueueWrapper.h"
@@ -40,6 +39,29 @@ namespace Nova {
 		}, start, end, args...));
 	}
 
+	//Starts the job system. Pass in a callable object and some parameters.
+	template <typename Callable, typename ... Params>
+	static void Start(Callable callable, Params ... args) {
+		Start(std::thread::hardware_concurrency(), callable, args...);
+	}
+
+	//Starts the job system. Pass in a callable object and some parameters.
+	template <typename Callable, typename ... Params>
+	static void Start(unsigned threadCount, Callable callable, Params ... args) {
+		using namespace internal;
+
+		//create threads
+		std::vector<WorkerThread> threads;
+
+		threads.resize(threadCount - 1);
+
+		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+
+		Push<true>(MakeJob(callable, args...));
+
+		WorkerThread::JobLoop();
+	}
+
 	namespace internal{
 		class Resources {
 		public:
@@ -58,140 +80,7 @@ namespace Nova {
 			}
 		};
 
-		//Queues a set of Runnables, invoking the envelope when all have finished
-		template<bool ToMain = false, typename ... Runnables>
-		static void Push(SealedEnvelope & next, Runnables&&... runnables) {
-			using namespace internal;
-			std::array<Envelope, sizeof...(runnables)-BatchCount<Runnables...>::value> envs;
-			std::vector<Envelope> batchEnvs;
-			batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
-			PackRunnable<true>(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-			Push<ToMain>(next, std::move(envs));
-			Push<ToMain>(next, std::move(batchEnvs));
-		}
-
-		//Queues an envelope
-		template<bool ToMain>
-		void Push(internal::Envelope&& e) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<internal::Envelope>(e));
-		}
-
-		//Queues a vector of envelopes
-		template<bool ToMain>
-		void Push(std::vector<internal::Envelope> && envs) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		template<bool ToMain, std::size_t N>
-		void Push(std::array<internal::Envelope, N> && envs) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
-		template<bool Alloc, std::size_t N, typename ... Runnables>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::vector<Envelope> & batchEnvs, Runnables&&... runnables) {
-			std::size_t index(0);
-			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnables>(runnables)...);
-		}
-
-		//Breaks a Runnable off the parameter pack and recurses
-		template<bool Alloc, std::size_t N, typename Runnable, typename ... Runnables>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable && runnable, Runnables&&... runnables) {
-			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnable>(runnable));
-			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnables>(runnables)...);
-		}
-
-		//Loads a Runnable into an envelope and pushes it to the given vector. Allocates.
-		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
-			envs[index++] = std::move(Envelope{ std::forward<Runnable>(runnable) });
-		}
-
-		//Loads a Runnable into an envelope and pushes it to the given vector
-		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
-			envs[index++] = { &runnable };
-		}
-
-		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector Allocates.
-		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
-			std::vector<Envelope> splitEnvs = SplitBatchJob(std::forward<decltype(j)>(j));
-			batchEnvs.insert(batchEnvs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
-		}
-
-		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
-		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
-			std::vector<Envelope> splitEnvs = SplitBatchJobNoAlloc(j);
-			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
-		}
-
-		//Converts a BatchJob into a vector of Envelopes
-		template<typename Callable, typename ... Params>
-		static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Params...> && j) {
-			std::vector<Envelope> jobs;
-			jobs.reserve(j.GetSections());
-			auto* basePtr = new BatchJob<Callable, Params...>(std::forward<decltype(j)>(j));
-			SealedEnvelope se(Envelope(&Envelope::NoOp, &Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
-			for (unsigned int section = 0; section < j.GetSections(); section++) {
-				jobs.emplace_back(basePtr);
-				jobs[section].AddSealedEnvelope(se);
-			}
-			return jobs;
-		}
-
-		//Converts a BatchJob into a vector of Envelopes without copying the job to the heap
-		template<typename Callable, typename ... Params>
-		static std::vector<Envelope> SplitBatchJobNoAlloc(BatchJob<Callable, Params...> & j) {
-			std::vector<Envelope> jobs;
-			jobs.reserve(j.GetSections());
-			for (unsigned int section = 0; section < j.GetSections(); section++) {
-				jobs.emplace_back(&j);
-			}
-			return jobs;
-		}
-
-		template<typename... Args> struct BatchCount;
-
-		template<>
-		struct BatchCount<> {
-			static const int value = 0;
-		};
-
-		template<typename ... Params, typename... Args>
-		struct BatchCount<BatchJob<Params...>, Args...> {
-			static const int value = 1 + BatchCount<Args...>::value;
-		};
-
-		template<typename First, typename... Args>
-		struct BatchCount<First, Args...> {
-			static const int value = BatchCount<Args...>::value;
-		};
-
-		template<bool ToMain, std::size_t N>
-		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		//Queues a vector of envelopes
-		template<bool ToMain>
-		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		//Attempts to grab an envelope from the queue
-		inline void Pop(Envelope &e) {
-			Resources::QueueWrapper().Pop(e);
-		}
-
-		inline void PopMain(Envelope &e) {
-			Resources::QueueWrapper().PopMain(e);
-		}
+#pragma region Call
 
 		template<bool ToMain, bool FromMain, std::size_t N>
 		void Call(std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
@@ -238,5 +127,164 @@ namespace Nova {
 			Resources::CallTrigger()->Open();
 			WorkerThread::JobLoop();
 		}
+
+#pragma endregion
+
+#pragma region Push
+
+		//Queues a set of Runnables, invoking the envelope when all have finished
+		template<bool ToMain = false, typename ... Runnables>
+		static void Push(SealedEnvelope & next, Runnables&&... runnables) {
+			using namespace internal;
+			std::array<Envelope, sizeof...(runnables)-BatchCount<Runnables...>::value> envs;
+			std::vector<Envelope> batchEnvs;
+			batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
+			PackRunnable<true>(envs, batchEnvs, std::forward<Runnables...>(runnables...));
+			Push<ToMain>(next, std::move(envs));
+			Push<ToMain>(next, std::move(batchEnvs));
+		}
+
+		//Queues an envelope
+		template<bool ToMain>
+		void Push(internal::Envelope&& e) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<internal::Envelope>(e));
+		}
+
+		//Queues an array of Envelopes
+		template<bool ToMain, std::size_t N>
+		void Push(std::array<internal::Envelope, N> && envs) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		template<bool ToMain, std::size_t N>
+		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		//Queues a vector of envelopes
+		template<bool ToMain>
+		void Push(std::vector<internal::Envelope> && envs) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		//Queues a vector of envelopes
+		template<bool ToMain>
+		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+#pragma endregion
+
+#pragma region Pop
+
+		//Attempts to grab an envelope from the queue
+		inline void Pop(Envelope &e) {
+			Resources::QueueWrapper().Pop(e);
+		}
+
+		inline void PopMain(Envelope &e) {
+			Resources::QueueWrapper().PopMain(e);
+		}
+
+#pragma endregion
+
+#pragma region PackRunnable
+
+		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
+		template<bool Alloc, std::size_t N, typename ... Runnables>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::vector<Envelope> & batchEnvs, Runnables&&... runnables) {
+			std::size_t index(0);
+			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnables>(runnables)...);
+		}
+
+		//Breaks a Runnable off the parameter pack and recurses
+		template<bool Alloc, std::size_t N, typename Runnable, typename ... Runnables>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable && runnable, Runnables&&... runnables) {
+			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnable>(runnable));
+			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnables>(runnables)...);
+		}
+
+		//Loads a Runnable into an envelope and pushes it to the given vector. Allocates.
+		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<Alloc, int> = 0>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
+			envs[index++] = std::move(Envelope{ std::forward<Runnable>(runnable) });
+		}
+
+		//Loads a Runnable into an envelope and pushes it to the given vector
+		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
+			envs[index++] = { &runnable };
+		}
+
+		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector Allocates.
+		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<Alloc, int> = 0>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
+			std::vector<Envelope> splitEnvs = SplitBatchJob(std::forward<decltype(j)>(j));
+			batchEnvs.insert(batchEnvs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
+		}
+
+		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
+		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
+		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
+			std::vector<Envelope> splitEnvs = SplitBatchJobNoAlloc(j);
+			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
+		}
+
+#pragma endregion
+
+#pragma region SplitBatchJob
+
+		//Converts a BatchJob into a vector of Envelopes
+		template<typename Callable, typename ... Params>
+		static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Params...> && j) {
+			std::vector<Envelope> jobs;
+			jobs.reserve(j.GetSections());
+			auto* basePtr = new BatchJob<Callable, Params...>(std::forward<decltype(j)>(j));
+			SealedEnvelope se(Envelope(&Envelope::NoOp, &Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
+			for (unsigned int section = 0; section < j.GetSections(); section++) {
+				jobs.emplace_back(basePtr);
+				jobs[section].AddSealedEnvelope(se);
+			}
+			return jobs;
+		}
+
+		//Converts a BatchJob into a vector of Envelopes without copying the job to the heap
+		template<typename Callable, typename ... Params>
+		static std::vector<Envelope> SplitBatchJobNoAlloc(BatchJob<Callable, Params...> & j) {
+			std::vector<Envelope> jobs;
+			jobs.reserve(j.GetSections());
+			for (unsigned int section = 0; section < j.GetSections(); section++) {
+				jobs.emplace_back(&j);
+			}
+			return jobs;
+		}
+
+#pragma endregion
+
+#pragma region Helpers
+
+		template<typename... Args> struct BatchCount;
+
+		template<>
+		struct BatchCount<> {
+			static const int value = 0;
+		};
+
+		template<typename ... Params, typename... Args>
+		struct BatchCount<BatchJob<Params...>, Args...> {
+			static const int value = 1 + BatchCount<Args...>::value;
+		};
+
+		template<typename First, typename... Args>
+		struct BatchCount<First, Args...> {
+			static const int value = BatchCount<Args...>::value;
+		};
+
+#pragma endregion
+
 	}
 }
