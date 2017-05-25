@@ -2,12 +2,474 @@
 
 #include <vector>
 #include <array>
-#include "Envelope.h"
-#include "Job.h"
-#include "WorkerThread.h"
-#include "QueueWrapper.h"
+#include <thread>
+#include <mutex>
+#include <tuple>
+#include <Windows.h>
+#include <memory>
+
+#include "QueueAdaptors.h"
 
 namespace Nova {
+
+#pragma region SimpleJob & BatchJob
+
+	namespace internal{
+
+#pragma region Helpers
+
+		namespace detail {
+			template <class F, class Tuple, std::size_t... I>
+			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
+				return std::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+			}
+		}  // namespace detail
+
+		template <class F, class Tuple>
+		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
+			return detail::apply_impl(
+				std::forward<F>(f), std::forward<Tuple>(t),
+				std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
+		}
+
+		template<class Tuple>
+		struct IntegralIndex;
+
+		template<bool Val, class Tuple>
+		struct IntegralIndexInner;
+
+		template<class T, class ... Types>
+		struct IntegralIndex<std::tuple<T, Types...>> {
+			static const std::size_t value = IntegralIndexInner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
+		};
+
+		template<typename Tuple>
+		struct IntegralIndexInner<true, Tuple> {
+			static const std::size_t value = 0;
+		};
+
+		template<typename T, typename ... Types>
+		struct IntegralIndexInner<false, std::tuple<T, Types...>> {
+			static const std::size_t value = 1 + IntegralIndex<std::tuple<Types...>>::value;
+		};
+
+#pragma endregion
+
+		template<typename Callable, typename ... Params>
+		class BatchJob;
+
+		template <typename Callable, typename ... Params>
+		class SimpleJob {
+		public:
+			SimpleJob(Callable callable, Params... args)
+				: m_callable(callable), m_tuple(args...) {
+			}
+
+			void operator () () const {
+				internal::apply(m_callable, m_tuple);
+			}
+
+			//Ignore the squiggly, this is defined further down
+			//operator BatchJob<Callable, Params...>() const;
+
+			typedef BatchJob<Callable, Params...> batchType;
+
+		protected:
+			Callable m_callable;
+			std::tuple<Params...> m_tuple;
+		};
+
+		template <typename Callable, typename ... Params>
+		class BatchJob : public SimpleJob<Callable, Params...> {
+		public:
+			typedef internal::IntegralIndex<std::tuple<Params...>> tupleIntegralIndex;
+			typedef std::tuple_element_t<tupleIntegralIndex::value, std::tuple<Params...>> startIndexType;
+			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, std::tuple<Params...>> endIndexType;
+
+			BatchJob(Callable callable, Params... args)
+				: SimpleJob<Callable, Params...>(callable, args...), m_sections((std::min)(static_cast<std::size_t>(End() - Start()), internal::WorkerThread::GetThreadCount())) {
+			}
+
+			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
+			: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), static_cast<indexType>(internal::WorkerThread::GetThreadCount()))) {
+			}*/
+
+			void operator () () {
+				std::tuple<Params...> params = this->m_tuple;
+				std::size_t start = Start();
+				std::size_t end = End();
+				float count = static_cast<float>(end - start);
+				std::size_t section = static_cast<startIndexType>(InterlockedIncrement(&m_currentSection));
+				std::size_t newStart = static_cast<startIndexType>(start + floorf(static_cast<float>(count*(section - 1) / m_sections)));
+				end = static_cast<std::size_t>(start + floorf(count*section / m_sections));
+
+				Start(params) = static_cast<startIndexType>(newStart);
+				End(params) = static_cast<endIndexType>(end);
+				internal::apply(this->m_callable, params);
+			}
+
+			std::size_t GetSections() const {
+				return m_sections;
+			}
+
+			void* operator new(size_t i)
+			{
+				return _mm_malloc(i, 32);
+			}
+
+			void operator delete(void* p)
+			{
+				_mm_free(p);
+			}
+
+			typedef SimpleJob<Callable, Params...> simpleType;
+
+		private:
+			alignas(32) uint32_t m_currentSection = 0;
+			std::size_t m_sections;
+
+			startIndexType& Start() {
+				return Start(this->m_tuple);
+			}
+			static startIndexType& Start(std::tuple<Params...> & tuple) {
+				return std::get<tupleIntegralIndex::value>(tuple);
+			}
+			endIndexType& End() {
+				return End(this->m_tuple);
+			}
+			static endIndexType& End(std::tuple<Params...> & tuple) {
+				return std::get<tupleIntegralIndex::value + 1>(tuple);
+			}
+		};
+
+		/*template<typename Callable, typename ...Params>
+		inline SimpleJob<Callable, Params...>::operator BatchJob<Callable, Params...>() const {
+		return BatchJob<Callable, Params...>(*this);
+		}*/
+	}
+
+	//Creates a job from a Callable object and parameters
+	template <typename Callable, typename ... Params>
+	internal::SimpleJob<Callable, Params...> MakeJob(Callable callable, Params... args) {
+		return internal::SimpleJob<Callable, Params...>(callable, args...);
+	}
+
+	//Creates a batch job from a Callable object and parameters (starting with a pair of BatchIndexes)
+	template <typename Callable, typename ... Params>
+	internal::BatchJob<Callable, Params...> MakeBatchJob(Callable callable, Params... args) {
+		return internal::BatchJob<Callable, Params...>(callable, args...);
+	}
+
+#pragma endregion
+
+#pragma region Envelope & SealedEnvelope
+
+	namespace internal{ class Envelope; }
+
+	class SealedEnvelope {
+	public:
+		SealedEnvelope() {}
+		SealedEnvelope(internal::Envelope & e);
+		SealedEnvelope(internal::Envelope && e);
+		template<typename Runnable>
+		SealedEnvelope(Runnable runnable);
+		void Open() {
+			m_seal.reset();
+		}
+	private:
+		struct Seal;
+		std::shared_ptr<Seal> m_seal;
+	};
+
+	namespace internal{
+		class Envelope {
+		public:
+			Envelope() {}
+			~Envelope() {
+				m_deleteFunc(m_runnable);
+			}
+			Envelope(const Envelope &) = delete;
+			Envelope operator=(const Envelope &) = delete;
+			Envelope(Envelope && e) noexcept {
+				Move(std::forward<Envelope>(e));
+			}
+			Envelope& operator=(Envelope && e) noexcept {
+				m_deleteFunc(m_runnable);
+				Move(std::forward<Envelope>(e));
+				return *this;
+			}
+
+			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
+			Envelope(Runnable&& runnable)
+				: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_deleteFunc(&Envelope::DeleteRunnable<std::decay_t<Runnable>>), m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))) {
+			}
+
+			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
+			Envelope(Runnable * runnable)
+				: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_runnable(runnable) {
+			}
+
+			Envelope(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
+				: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
+			}
+
+			void operator () () const {
+				m_runFunc(m_runnable);
+			}
+
+			void AddSealedEnvelope(SealedEnvelope & se) {
+				m_sealedEnvelope = se;
+			}
+			void OpenSealedEnvelope() {
+				m_sealedEnvelope.Open();
+			}
+
+			template <typename Runnable>
+			static void RunRunnable(void * runnable) {
+				(static_cast<Runnable*>(runnable))->operator()();
+			}
+
+			template <typename Runnable>
+			static void DeleteRunnable(void * runnable) {
+				delete static_cast<Runnable*>(runnable);
+			}
+
+			static void NoOp(void * runnable) {};
+
+		private:
+			void Move(Envelope && e) noexcept {
+				m_runFunc = e.m_runFunc;
+				m_deleteFunc = e.m_deleteFunc;
+				m_runnable = e.m_runnable;
+				m_sealedEnvelope = std::move(e.m_sealedEnvelope);
+				e.m_runFunc = &Envelope::NoOp;
+				e.m_deleteFunc = &Envelope::NoOp;
+				e.m_runnable = nullptr;
+			}
+
+			void(*m_runFunc)(void *) = &Envelope::NoOp;
+			void(*m_deleteFunc)(void*) = &Envelope::NoOp;
+			void * m_runnable = nullptr;
+			SealedEnvelope m_sealedEnvelope;
+		};
+	}
+
+	struct SealedEnvelope::Seal {
+		Seal(internal::Envelope & e)
+			: m_env(std::move(e)) {
+		}
+
+		template <typename Runnable>
+		Seal(Runnable runnable)
+			: m_env(std::forward<Runnable>(runnable)) {
+		}
+
+		~Seal() {
+			m_env();
+		}
+
+		internal::Envelope m_env;
+	};
+
+	template<typename Runnable>
+	SealedEnvelope::SealedEnvelope(Runnable runnable)
+		: m_seal(std::make_shared<Seal>(std::forward<Runnable>(runnable))) {
+	}
+
+	inline SealedEnvelope::SealedEnvelope(internal::Envelope & e)
+		: m_seal(std::make_shared<Seal>(e)) {
+	}
+
+	inline SealedEnvelope::SealedEnvelope(internal::Envelope && e)
+		: m_seal(std::make_shared<Seal>(std::forward<internal::Envelope>(e))) {
+	}
+
+#pragma endregion
+
+#pragma region WorkerThread
+
+	namespace internal {
+		//Forward declarations
+		void PopMain(Envelope & e);
+		void Pop(Envelope & e);
+
+		class WorkerThread {
+		public:
+			WorkerThread() {
+				m_thread = std::thread(InitThread);
+			}
+			static void JobLoop() {
+				while (Running()) {
+					Envelope e;
+					if (WorkerThread::GetThreadId() == 0)
+						PopMain(e);
+					else
+						Pop(e);
+					e();
+				}
+			}
+			static std::size_t GetThreadId() {
+				return ThreadId();
+			}
+			static std::size_t GetThreadCount() {
+				return ThreadCount();
+			}
+			static void KillWorker() {
+				Running() = false;
+			}
+			void Join() {
+				m_thread.join();
+			}
+		private:
+			static void InitThread() {
+				{
+					std::lock_guard<std::mutex> lock(InitLock());
+					ThreadId() = ThreadCount();
+					ThreadCount()++;
+				}
+				ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+				JobLoop();
+			}
+
+			//Meyers singletons
+			static std::size_t & ThreadId() {
+				static thread_local std::size_t id = 0;
+				return id;
+			}
+			static bool & Running() {
+				static thread_local bool running = true;
+				return running;
+			}
+			static std::size_t & ThreadCount() {
+				static std::size_t count = 0;
+				return count;
+			}
+			static std::mutex & InitLock() {
+				static std::mutex lock;
+				return lock;
+			}
+
+			std::thread m_thread;
+		};
+	}
+
+#pragma endregion
+
+#pragma region QueueWrapper
+
+#define SPIN_COUNT 10000
+
+#ifndef NOVA_QUEUE_TYPE
+#define NOVA_QUEUE_TYPE MoodycamelAdaptor
+#endif // !NOVA_QUEUE_TYPE
+
+	namespace internal{
+		class CriticalLock {
+		public:
+			CriticalLock(CRITICAL_SECTION& cs) : m_cs(cs) {
+				EnterCriticalSection(&m_cs);
+			}
+
+			~CriticalLock() {
+				LeaveCriticalSection(&m_cs);
+			}
+
+		private:
+			CriticalLock(const CriticalLock&) = delete;
+
+		private:
+			CRITICAL_SECTION & m_cs;
+		};
+
+		struct CriticalWrapper {
+			CriticalWrapper() {
+				InitializeCriticalSection(&cs);
+			}
+
+			~CriticalWrapper() {
+				DeleteCriticalSection(&cs);
+			}
+
+			CRITICAL_SECTION cs;
+		};
+
+		template <typename T>
+		class QueueWrapper {
+		public:
+			QueueWrapper() {
+				InitializeConditionVariable(&s_cv);
+			}
+
+			void Pop(T& item) {
+				unsigned counter = 0;
+				while (!m_globalQueue.Pop(item)) {
+					if (counter++ > SPIN_COUNT) {
+						counter = 0;
+						SleepConditionVariableCS(&s_cv, &s_cs.cs, INFINITE);
+					}
+				}
+			}
+
+			void PopMain(T& item) {
+				unsigned counter = 0;
+				while (!m_globalQueue.Pop(item) && !m_mainQueue.Pop(item)) {
+					if (counter++ > SPIN_COUNT) {
+						counter = 0;
+						SleepConditionVariableCS(&s_mainCV, &s_cs.cs, INFINITE);
+					}
+				}
+			}
+
+			template<bool ToMain, std::enable_if_t<!ToMain, int> = 0>
+			void Push(T&& item) {
+				m_globalQueue.Push(std::forward<T>(item));
+				WakeConditionVariable(&s_cv);
+				WakeConditionVariable(&s_mainCV);
+			}
+
+			template<bool ToMain, typename Collection, std::enable_if_t<!ToMain, int> = 0>
+			void Push(Collection && items) {
+				m_globalQueue.Push(std::forward<decltype(items)>(items));
+				WakeAllConditionVariable(&s_cv);
+				WakeConditionVariable(&s_mainCV);
+			}
+
+			template<bool ToMain, std::enable_if_t<ToMain, int> = 0>
+			void Push(T&& item) {
+				m_mainQueue.Push(std::forward<T>(item));
+				WakeConditionVariable(&s_mainCV);
+			}
+
+			template<bool ToMain, typename Collection, std::enable_if_t<ToMain, int> = 0>
+			void Push(Collection && items) {
+				m_mainQueue.Push(std::forward<decltype(items)>(items));
+				WakeConditionVariable(&s_mainCV);
+			}
+
+		private:
+			NOVA_QUEUE_TYPE<T> m_globalQueue;
+			NOVA_QUEUE_TYPE<T> m_mainQueue;
+			static CONDITION_VARIABLE s_cv;
+			static CONDITION_VARIABLE s_mainCV;
+			static thread_local CriticalWrapper s_cs;
+			static thread_local CriticalLock s_cl;
+		};
+
+		template<typename T>
+		CONDITION_VARIABLE QueueWrapper<T>::s_cv;
+
+		template<typename T>
+		CONDITION_VARIABLE QueueWrapper<T>::s_mainCV;
+
+		template<typename T>
+		thread_local CriticalWrapper QueueWrapper<T>::s_cs;
+
+		template<typename T>
+		thread_local CriticalLock QueueWrapper<T>::s_cl(QueueWrapper<T>::s_cs.cs);
+	}
+
+#pragma endregion
+
 	//Queues a set of Runnables
 	template<bool ToMain = false, typename ... Runnables>
 	static void Push(Runnables&&... runnables) {
@@ -24,7 +486,7 @@ namespace Nova {
 	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
 	static void Call(Runnables&&... runnables) {
 		using namespace internal;
-		std::array<Envelope, sizeof...(Runnables) - BatchCount<Runnables...>::value> envs;
+		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
 		std::vector<Envelope> batchEnvs;
 		PackRunnable<false>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
 		Call<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
