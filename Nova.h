@@ -491,7 +491,7 @@ namespace Nova {
 #pragma region Call
 
 		template<bool ToMain, bool FromMain, typename ... Params>
-		void CallImpl(Params&&... params) {
+		void Call(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
 				Nova::internal::Push<FromMain>(MakeJob(&FinishCalledJob, currentFiber));
@@ -500,19 +500,19 @@ namespace Nova {
 			SealedEnvelope se(Envelope{ &completionJob });
 			Resources::CallTrigger() = &se;
 
-			CallImplPush<ToMain>(se, std::forward<Params>(params)...);
+			CallPush<ToMain>(se, std::forward<Params>(params)...);
 
 			SwitchToFiber(GetNewFiber());
 		}
 
 		template<bool ToMain, std::size_t N>
-		void CallImplPush(SealedEnvelope se, std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
+		void CallPush(SealedEnvelope se, std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
 			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
 			Push<ToMain>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
 		}
 
 		template<bool ToMain>
-		void CallImplPush(SealedEnvelope & se){}
+		void CallPush(SealedEnvelope & se){}
 
 		inline void FinishCalledJob(LPVOID oldFiber) {
 			//Mark for re-use
@@ -711,11 +711,11 @@ namespace Nova {
 		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
 		std::vector<Envelope> batchEnvs;
 		PackRunnable<false>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
-		CallImpl<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
+		internal::Call<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
 	}
 
 	inline void SwitchToMain() {
-		internal::CallImpl<false, true>();
+		internal::Call<false, true>();
 	}
 
 	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
