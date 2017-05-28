@@ -341,7 +341,7 @@ namespace Nova {
 				return running;
 			}
 			static std::size_t & ThreadCount() {
-				static std::size_t count = 0;
+				static std::size_t count = 1;
 				return count;
 			}
 			static std::mutex & InitLock() {
@@ -470,60 +470,6 @@ namespace Nova {
 
 #pragma endregion
 
-	//Queues a set of Runnables
-	template<bool ToMain = false, typename ... Runnables>
-	static void Push(Runnables&&... runnables) {
-		using namespace internal;
-		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
-		std::vector<Envelope> batchEnvs;
-		batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
-		PackRunnable<true>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
-		Push<ToMain>(std::move(envs));
-		Push<ToMain>(std::move(batchEnvs));
-	}
-
-	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
-	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
-	static void Call(Runnables&&... runnables) {
-		using namespace internal;
-		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
-		std::vector<Envelope> batchEnvs;
-		PackRunnable<false>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
-		Call<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
-	}
-
-	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
-	template<typename Callable, typename ... Params>
-	static void ParallelFor(Callable callable, unsigned start, unsigned end, Params... args) {
-		Call(MakeBatchJob([&](unsigned start, unsigned end, Params... args) {
-			for (BatchIndex c = start; c < end; c++)
-				callable(c, args...);
-		}, start, end, args...));
-	}
-
-	//Starts the job system. Pass in a callable object and some parameters.
-	template <typename Callable, typename ... Params>
-	static void Start(Callable callable, Params ... args) {
-		Start(std::thread::hardware_concurrency(), callable, args...);
-	}
-
-	//Starts the job system. Pass in a callable object and some parameters.
-	template <typename Callable, typename ... Params>
-	static void Start(unsigned threadCount, Callable callable, Params ... args) {
-		using namespace internal;
-
-		//create threads
-		std::vector<WorkerThread> threads;
-
-		threads.resize(threadCount - 1);
-
-		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
-
-		Push<true>(MakeJob(callable, args...));
-
-		WorkerThread::JobLoop();
-	}
-
 	namespace internal{
 		class Resources {
 		public:
@@ -544,11 +490,8 @@ namespace Nova {
 
 #pragma region Call
 
-		template<bool ToMain, bool FromMain, std::size_t N>
-		void Call(std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
-			if (envs.size() == 0 && batchEnvs.size() == 0)
-				throw std::runtime_error("Attempting to call no Envelopes");
-
+		template<bool ToMain, bool FromMain, typename ... Params>
+		void CallImpl(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
 				Nova::internal::Push<FromMain>(MakeJob(&FinishCalledJob, currentFiber));
@@ -557,21 +500,19 @@ namespace Nova {
 			SealedEnvelope se(Envelope{ &completionJob });
 			Resources::CallTrigger() = &se;
 
-			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
+			CallImplPush<ToMain>(se, std::forward<Params>(params)...);
 
-			Push<ToMain>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
-
-			LPVOID newFiber;
-
-			if (Resources::AvailableFibers().size() > 0) {
-				newFiber = Resources::AvailableFibers()[Resources::AvailableFibers().size() - 1];
-				Resources::AvailableFibers().pop_back();
-			}
-			else
-				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)OpenCallTriggerAndEnterJobLoop, nullptr);
-
-			SwitchToFiber(newFiber);
+			SwitchToFiber(GetNewFiber());
 		}
+
+		template<bool ToMain, std::size_t N>
+		void CallImplPush(SealedEnvelope se, std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
+			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
+			Push<ToMain>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
+		}
+
+		template<bool ToMain>
+		void CallImplPush(SealedEnvelope & se){}
 
 		inline void FinishCalledJob(LPVOID oldFiber) {
 			//Mark for re-use
@@ -590,21 +531,22 @@ namespace Nova {
 			WorkerThread::JobLoop();
 		}
 
+		inline LPVOID GetNewFiber() {
+			LPVOID newFiber;
+
+			if (Resources::AvailableFibers().size() > 0) {
+				newFiber = Resources::AvailableFibers()[Resources::AvailableFibers().size() - 1];
+				Resources::AvailableFibers().pop_back();
+			}
+			else
+				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)OpenCallTriggerAndEnterJobLoop, nullptr);
+
+			return newFiber;
+		}
+
 #pragma endregion
 
 #pragma region Push
-
-		//Queues a set of Runnables, invoking the envelope when all have finished
-		template<bool ToMain = false, typename ... Runnables>
-		static void Push(SealedEnvelope & next, Runnables&&... runnables) {
-			using namespace internal;
-			std::array<Envelope, sizeof...(runnables)-BatchCount<Runnables...>::value> envs;
-			std::vector<Envelope> batchEnvs;
-			batchEnvs.reserve(internal::BatchCount<Runnables...>::value * 4);
-			PackRunnable<true>(envs, batchEnvs, std::forward<Runnables...>(runnables...));
-			Push<ToMain>(next, std::move(envs));
-			Push<ToMain>(next, std::move(batchEnvs));
-		}
 
 		//Queues an envelope
 		template<bool ToMain>
@@ -622,7 +564,7 @@ namespace Nova {
 		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+			Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 		//Queues a vector of envelopes
@@ -636,7 +578,7 @@ namespace Nova {
 		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
 			for (Envelope & e : envs)
 				e.AddSealedEnvelope(se);
-			Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+			Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 #pragma endregion
@@ -748,5 +690,99 @@ namespace Nova {
 
 #pragma endregion
 
+	}
+
+	//Queues a set of Runnables
+	template<bool ToMain = false, typename ... Runnables>
+	void Push(Runnables&&... runnables) {
+		using namespace internal;
+		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
+		std::vector<Envelope> batchEnvs;
+		batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
+		PackRunnable<true>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
+		Push<ToMain>(std::move(envs));
+		Push<ToMain>(std::move(batchEnvs));
+	}
+
+	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
+	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
+	void Call(Runnables&&... runnables) {
+		using namespace internal;
+		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
+		std::vector<Envelope> batchEnvs;
+		PackRunnable<false>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
+		CallImpl<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
+	}
+
+	inline void SwitchToMain() {
+		internal::CallImpl<false, true>();
+	}
+
+	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
+	template<typename Callable, typename ... Params>
+	void ParallelFor(Callable callable, unsigned start, unsigned end, Params... args) {
+		Call(MakeBatchJob([&](unsigned start, unsigned end, Params... args) {
+			for (BatchIndex c = start; c < end; c++)
+				callable(c, args...);
+		}, start, end, args...));
+	}
+
+	//Starts the job system. Pass in a callable object and some parameters.
+	template <typename Callable, typename ... Params>
+	void StartAsync(Callable callable, Params ... args) {
+		StartAsync(std::thread::hardware_concurrency(), callable, args...);
+	}
+
+	//Starts the job system. Pass in a callable object and some parameters.
+	template <typename Callable, typename ... Params>
+	void StartAsync(unsigned threadCount, Callable callable, Params ... args) {
+		using namespace internal;
+
+		//create threads
+		std::vector<WorkerThread> threads;
+
+		threads.resize(threadCount - 1);
+
+		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+
+		Push<true>(MakeJob(callable, args...));
+
+		WorkerThread::JobLoop();
+
+		for (WorkerThread & wt : threads)
+			wt.Join();
+	}
+
+	//Starts the job system. Pass in a callable object and some parameters.
+	template <typename Callable, typename ... Params>
+	void StartSync(Callable callable, Params ... args) {
+		StartSync(std::thread::hardware_concurrency(), callable, args...);
+	}
+
+	//Starts the job system. Pass in a callable object and some parameters.
+	template <typename Callable, typename ... Params>
+	void StartSync(unsigned threadCount, Callable callable, Params ... args) {
+		using namespace internal;
+
+		//create threads
+		std::vector<WorkerThread> threads;
+
+		threads.resize(threadCount - 1);
+
+		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+
+		Call<true, true>(MakeJob(callable, args...));
+
+		for (WorkerThread & wt : threads)
+			Push(MakeJob(WorkerThread::KillWorker));
+		for (WorkerThread & wt : threads)
+			wt.Join();
+	}
+
+
+	inline void KillAllWorkers() {
+		using namespace internal;
+		for (unsigned c = 0; c < WorkerThread::GetThreadCount(); c++)
+			Nova::Push(MakeJob(WorkerThread::KillWorker));
 	}
 }
