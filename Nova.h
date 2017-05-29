@@ -14,7 +14,7 @@
 
 namespace Nova {
 
-#pragma region SimpleJob & BatchJob
+#pragma region Function & BatchFunction
 
 	namespace internal{
 
@@ -70,12 +70,12 @@ namespace Nova {
 #pragma endregion
 
 		template<typename Callable, typename ... Params>
-		class BatchJob;
+		class BatchFunction;
 
 		template <typename Callable, typename ... Params>
-		class SimpleJob {
+		class Function {
 		public:
-			SimpleJob(Callable callable, Params... args)
+			Function(Callable callable, Params... args)
 				: m_callable(callable), m_tuple(args...) {
 			}
 
@@ -86,7 +86,7 @@ namespace Nova {
 			//Ignore the squiggly, this is defined further down
 			//operator BatchJob<Callable, Params...>() const;
 
-			typedef BatchJob<Callable, Params...> batchType;
+			typedef BatchFunction<Callable, Params...> batchType;
 
 		protected:
 			Callable m_callable;
@@ -94,14 +94,14 @@ namespace Nova {
 		};
 
 		template <typename Callable, typename ... Params>
-		class BatchJob : public SimpleJob<Callable, Params...> {
+		class BatchFunction : public Function<Callable, Params...> {
 		public:
 			typedef internal::IntegralIndex<std::tuple<Params...>> tupleIntegralIndex;
 			typedef std::tuple_element_t<tupleIntegralIndex::value, std::tuple<Params...>> startIndexType;
 			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, std::tuple<Params...>> endIndexType;
 
-			BatchJob(Callable callable, Params... args)
-				: SimpleJob<Callable, Params...>(callable, args...), m_sections((std::min)(static_cast<std::size_t>(End() - Start()), internal::WorkerThread::GetThreadCount())) {
+			BatchFunction(Callable callable, Params... args)
+				: Function<Callable, Params...>(callable, args...), m_sections((std::min)(static_cast<std::size_t>(End() - Start()), internal::WorkerThread::GetThreadCount())) {
 			}
 
 			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
@@ -136,7 +136,7 @@ namespace Nova {
 				_mm_free(p);
 			}
 
-			typedef SimpleJob<Callable, Params...> simpleType;
+			typedef Function<Callable, Params...> simpleType;
 
 		private:
 			alignas(32) uint32_t m_currentSection = 0;
@@ -164,14 +164,14 @@ namespace Nova {
 
 	//Creates a job from a Callable object and parameters
 	template <typename Callable, typename ... Params>
-	internal::SimpleJob<Callable, Params...> MakeJob(Callable callable, Params... args) {
-		return internal::SimpleJob<Callable, Params...>(callable, args...);
+	internal::Function<Callable, Params...> Bind(Callable callable, Params... args) {
+		return internal::Function<Callable, Params...>(callable, args...);
 	}
 
 	//Creates a batch job from a Callable object and parameters (starting with a pair of BatchIndexes)
 	template <typename Callable, typename ... Params>
-	internal::BatchJob<Callable, Params...> MakeBatchJob(Callable callable, Params... args) {
-		return internal::BatchJob<Callable, Params...>(callable, args...);
+	internal::BatchFunction<Callable, Params...> BindBatch(Callable callable, Params... args) {
+		return internal::BatchFunction<Callable, Params...>(callable, args...);
 	}
 
 #pragma endregion
@@ -189,7 +189,7 @@ namespace Nova {
 		};
 
 		template<typename ... Params, typename... Args>
-		struct BatchCount<BatchJob<Params...>, Args...> {
+		struct BatchCount<BatchFunction<Params...>, Args...> {
 			static const int value = 1 + BatchCount<Args...>::value;
 		};
 
@@ -213,21 +213,21 @@ namespace Nova {
 
 #pragma region Envelope & SealedEnvelope
 
-	namespace internal{ class Envelope; }
+	namespace internal{ class Job; }
 
-	class SealedEnvelope {
+	class DependencyToken {
 	public:
-		SealedEnvelope() {}
-		SealedEnvelope(internal::Envelope & e);
-		SealedEnvelope(internal::Envelope && e);
+		DependencyToken() {}
+		DependencyToken(internal::Job & e);
+		DependencyToken(internal::Job && e);
 		template<typename Runnable>
-		SealedEnvelope(Runnable runnable);
+		DependencyToken(Runnable runnable);
 		void Open() {
-			m_seal.reset();
+			m_token.reset();
 		}
 	private:
-		struct Seal;
-		std::shared_ptr<Seal> m_seal;
+		struct SharedToken;
+		std::shared_ptr<SharedToken> m_token;
 	};
 
 	namespace internal{
@@ -243,8 +243,8 @@ namespace Nova {
 		template<typename T>
 		class RaiiPointer {
 		public:
-			RaiiPointer(std::decay_t<T> *& se, std::decay_t<T> * val)
-				: m_ptr(se) {
+			RaiiPointer(std::decay_t<T> *& ptr, std::decay_t<T> * val)
+				: m_ptr(ptr) {
 				m_ptr = val;
 			}
 			~RaiiPointer() {
@@ -256,58 +256,58 @@ namespace Nova {
 
 		constexpr std::size_t padSize = static_cast<std::size_t>(ceil(NOVA_CACHE_LINE_BYTES*1.5));
 
-		class /*alignas(NOVA_CACHE_LINE_BYTES)*/ Envelope {
+		class /*alignas(NOVA_CACHE_LINE_BYTES)*/ Job {
 		public:
-			Envelope() {}
-			~Envelope() {
-				inner.m_deleteFunc(inner.m_runnable);
+			Job() {}
+			~Job() {
+				m_data.m_deleteFunc(m_data.m_runnable);
 			}
-			Envelope(const Envelope &) = delete;
-			Envelope operator=(const Envelope &) = delete;
-			Envelope(Envelope && e) noexcept {
-				Move(std::forward<Envelope>(e));
+			Job(const Job &) = delete;
+			Job operator=(const Job &) = delete;
+			Job(Job && e) noexcept {
+				Move(std::forward<Job>(e));
 			}
-			Envelope& operator=(Envelope && e) noexcept {
-				inner.m_deleteFunc(inner.m_runnable);
-				Move(std::forward<Envelope>(e));
+			Job& operator=(Job && e) noexcept {
+				m_data.m_deleteFunc(m_data.m_runnable);
+				Move(std::forward<Job>(e));
 				return *this;
 			}
 
-			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
-			Envelope(Runnable&& runnable)
-				: inner(
-					&Envelope::RunRunnable<std::decay_t<Runnable>>,
-					&Envelope::DeleteRunnable<std::decay_t<Runnable>>,
+			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Job>::value, int> = 0>
+			Job(Runnable&& runnable)
+				: m_data(
+					&Job::RunRunnable<std::decay_t<Runnable>>,
+					&Job::DeleteRunnable<std::decay_t<Runnable>>,
 					new std::decay_t<Runnable>(std::forward<Runnable>(runnable))
 				) {
 			}
 
-			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
-			Envelope(Runnable * runnable)
-				: inner(
-					&Envelope::RunRunnable<std::decay_t<Runnable>>,
-					&Envelope::NoOp,
+			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Job>::value, int> = 0>
+			Job(Runnable * runnable)
+				: m_data(
+					&Job::RunRunnable<std::decay_t<Runnable>>,
+					&Job::NoOp,
 					runnable
 				) {
 			}
 
-			Envelope(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
-				: inner( runFunc, deleteFunc, runnable ) {
+			Job(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
+				: m_data( runFunc, deleteFunc, runnable ) {
 			}
 
 			void operator () () const {
-				inner.m_runFunc(inner.m_runnable);
+				m_data.m_runFunc(m_data.m_runnable);
 			}
 
-			void AddSealedEnvelope(SealedEnvelope & se) {
-				inner.m_sealedEnvelope = se;
+			void SetDependencyToken(DependencyToken & se) {
+				m_data.m_callToken = se;
 			}
 			void OpenSealedEnvelope() {
-				inner.m_sealedEnvelope.Open();
+				m_data.m_callToken.Open();
 			}
 
-			SealedEnvelope & GetSealedEnvelope() {
-				return inner.m_sealedEnvelope;
+			DependencyToken & GetSealedEnvelope() {
+				return m_data.m_callToken;
 			}
 
 			template <typename Runnable, std::enable_if_t<!IsShared<Runnable>::value, int> = 0>
@@ -328,60 +328,60 @@ namespace Nova {
 			static void NoOp(void * runnable) {};
 
 		private:
-			void Move(Envelope && e) noexcept {
-				inner.m_runFunc = e.inner.m_runFunc;
-				inner.m_deleteFunc = e.inner.m_deleteFunc;
-				inner.m_runnable = e.inner.m_runnable;
-				inner.m_sealedEnvelope = std::move(e.inner.m_sealedEnvelope);
-				e.inner.m_runFunc = &Envelope::NoOp;
-				e.inner.m_deleteFunc = &Envelope::NoOp;
-				e.inner.m_runnable = nullptr;
+			void Move(Job && e) noexcept {
+				m_data.m_runFunc = e.m_data.m_runFunc;
+				m_data.m_deleteFunc = e.m_data.m_deleteFunc;
+				m_data.m_runnable = e.m_data.m_runnable;
+				m_data.m_callToken = std::move(e.m_data.m_callToken);
+				e.m_data.m_runFunc = &Job::NoOp;
+				e.m_data.m_deleteFunc = &Job::NoOp;
+				e.m_data.m_runnable = nullptr;
 			}
 
-			struct EnvelopeInternal {
-				EnvelopeInternal() {}
-				EnvelopeInternal(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable) 
+			struct JobData {
+				JobData() {}
+				JobData(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable) 
 					: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
 				}
-				void(*m_runFunc)(void *) = &Envelope::NoOp;
-				void(*m_deleteFunc)(void*) = &Envelope::NoOp;
+				void(*m_runFunc)(void *) = &Job::NoOp;
+				void(*m_deleteFunc)(void*) = &Job::NoOp;
 				void * m_runnable = nullptr;
-				SealedEnvelope m_sealedEnvelope;
+				DependencyToken m_callToken;
 			};
 
-			EnvelopeInternal inner;
-			char padding[padSize - sizeof(EnvelopeInternal)];
+			JobData m_data;
+			char padding[padSize - sizeof(JobData)];
 		};
 	}
 
-	struct SealedEnvelope::Seal {
-		Seal(internal::Envelope & e)
-			: m_env(std::move(e)) {
+	struct DependencyToken::SharedToken {
+		SharedToken(internal::Job & e)
+			: m_job(std::move(e)) {
 		}
 
 		template <typename Runnable>
-		Seal(Runnable runnable)
-			: m_env(std::forward<Runnable>(runnable)) {
+		SharedToken(Runnable runnable)
+			: m_job(std::forward<Runnable>(runnable)) {
 		}
 
-		~Seal() {
-			m_env();
+		~SharedToken() {
+			m_job();
 		}
 
-		internal::Envelope m_env;
+		internal::Job m_job;
 	};
 
 	template<typename Runnable>
-	SealedEnvelope::SealedEnvelope(Runnable runnable)
-		: m_seal(std::make_shared<Seal>(std::forward<Runnable>(runnable))) {
+	DependencyToken::DependencyToken(Runnable runnable)
+		: m_token(std::make_shared<SharedToken>(std::forward<Runnable>(runnable))) {
 	}
 
-	inline SealedEnvelope::SealedEnvelope(internal::Envelope & e)
-		: m_seal(std::make_shared<Seal>(e)) {
+	inline DependencyToken::DependencyToken(internal::Job & e)
+		: m_token(std::make_shared<SharedToken>(e)) {
 	}
 
-	inline SealedEnvelope::SealedEnvelope(internal::Envelope && e)
-		: m_seal(std::make_shared<Seal>(std::forward<internal::Envelope>(e))) {
+	inline DependencyToken::DependencyToken(internal::Job && e)
+		: m_token(std::make_shared<SharedToken>(std::forward<internal::Job>(e))) {
 	}
 
 #pragma endregion
@@ -505,20 +505,20 @@ namespace Nova {
 		class Resources {
 		public:
 			//Meyers singletons
-			static QueueWrapper<Envelope>& QueueWrapper() {
-				static Nova::internal::QueueWrapper<Nova::internal::Envelope> qw;
+			static QueueWrapper<Job>& QueueWrapper() {
+				static Nova::internal::QueueWrapper<Nova::internal::Job> qw;
 				return qw;
 			}
 			static std::vector<LPVOID>& AvailableFibers() {
 				static thread_local std::vector<LPVOID> af;
 				return af;
 			}
-			static SealedEnvelope *& CallTrigger() {
-				static thread_local SealedEnvelope * ct;
+			static DependencyToken *& CallToken() {
+				static thread_local DependencyToken * ct;
 				return ct;
 			}
-			static SealedEnvelope *& DependentToken() {
-				static thread_local SealedEnvelope * se;
+			static DependencyToken *& DependentToken() {
+				static thread_local DependencyToken * se;
 				return se;
 			}
 		};
@@ -528,8 +528,8 @@ namespace Nova {
 
 	namespace internal {
 		//Forward declarations
-		void PopMain(Envelope & e);
-		void Pop(Envelope & e);
+		void PopMain(Job &);
+		void Pop(Job &);
 
 		class WorkerThread {
 		public:
@@ -538,14 +538,14 @@ namespace Nova {
 			}
 			static void JobLoop() {
 				while (Running()) {
-					Envelope e;
+					Job j;
 					if (WorkerThread::GetThreadId() == 0)
-						PopMain(e);
+						PopMain(j);
 					else
-						Pop(e);
+						Pop(j);
 
-					RaiiPointer<SealedEnvelope> rp(Resources::DependentToken(), &e.GetSealedEnvelope());
-					e();
+					RaiiPointer<DependencyToken> rp(Resources::DependentToken(), &j.GetSealedEnvelope());
+					j();
 				}
 			}
 			static std::size_t GetThreadId() {
@@ -603,12 +603,12 @@ namespace Nova {
 		template<bool ToMain, bool Dependent, typename ... Runnables >
 		void Push(Runnables&&... runnables) {
 			using namespace internal;
-			std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
-			std::vector<Envelope> batchEnvs;
-			batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
-			PackRunnable<true>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
-			PushPicker<ToMain, Dependent>(std::move(envs));
-			PushPicker<ToMain, Dependent>(std::move(batchEnvs));
+			std::array<Job, sizeof...(Runnables)-BatchCount<Runnables...>::value> jobs;
+			std::vector<Job> batchJobs;
+			batchJobs.reserve(BatchCount<Runnables...>::value * 4);
+			PackRunnable<true>(jobs, batchJobs, std::forward<Runnables>(runnables)...);
+			PushPicker<ToMain, Dependent>(std::move(jobs));
+			PushPicker<ToMain, Dependent>(std::move(batchJobs));
 		}
 
 		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<Dependent, int> = 0>
@@ -623,29 +623,29 @@ namespace Nova {
 
 		//Queues an array of Envelopes
 		template<bool ToMain, std::size_t N>
-		void Push(std::array<internal::Envelope, N> && envs) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		void Push(std::array<internal::Job, N> && jobs) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(jobs)>(jobs));
 		}
 
 		template<bool ToMain, std::size_t N>
-		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Push<ToMain>(std::forward<decltype(envs)>(envs));
+		void Push(DependencyToken & dt, std::array<Job, N> && jobs) {
+			for (Job & j : jobs)
+				j.SetDependencyToken(dt);
+			Push<ToMain>(std::forward<decltype(jobs)>(jobs));
 		}
 
 		//Queues a vector of envelopes
 		template<bool ToMain>
-		void Push(std::vector<internal::Envelope> && envs) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		void Push(std::vector<internal::Job> && jobs) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(jobs)>(jobs));
 		}
 
 		//Queues a vector of envelopes
 		template<bool ToMain>
-		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Push<ToMain>(std::forward<decltype(envs)>(envs));
+		void Push(DependencyToken & dt, std::vector<Job> && jobs) {
+			for (Job & j : jobs)
+				j.SetDependencyToken(dt);
+			Push<ToMain>(std::forward<decltype(jobs)>(jobs));
 		}
 
 #pragma endregion
@@ -657,25 +657,25 @@ namespace Nova {
 		void Call(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				Nova::Push<FromMain>(MakeJob(&FinishCalledJob, currentFiber));
+				Nova::Push<FromMain>(Bind(&FinishCalledJob, currentFiber));
 			};
 
-			SealedEnvelope se(Envelope{ &completionJob });
-			Resources::CallTrigger() = &se;
+			DependencyToken dt(Job{ &completionJob });
+			Resources::CallToken() = &dt;
 
-			CallPush<ToMain>(se, std::forward<Params>(params)...);
+			CallPush<ToMain>(dt, std::forward<Params>(params)...);
 
 			SwitchToFiber(GetNewFiber());
 		}
 
 		template<bool ToMain, std::size_t N>
-		void CallPush(SealedEnvelope & se, std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
-			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
-			Push<ToMain>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
+		void CallPush(DependencyToken & dt, std::array<Job, N> && jobs, std::vector<Job> && batchJobs) {
+			Push<ToMain>(dt, std::forward<decltype(jobs)>(jobs));
+			Push<ToMain>(dt, std::forward<decltype(batchJobs)>(batchJobs));
 		}
 
 		template<bool ToMain>
-		void CallPush(SealedEnvelope & se){}
+		void CallPush(DependencyToken & dt){}
 
 		inline void FinishCalledJob(LPVOID oldFiber) {
 			//Mark for re-use
@@ -683,14 +683,14 @@ namespace Nova {
 			SwitchToFiber(oldFiber);
 
 			//Re-use starts here
-			Resources::CallTrigger()->Open();
+			Resources::CallToken()->Open();
 		}
 
 		//Starting point for a new fiber, queues a list of jobs and immediately enters the job loop.
 		//This is used by the Call- functions to delay queueing of jobs until after the calling fiber
 		//has been suspended.
-		inline void OpenCallTriggerAndEnterJobLoop(LPVOID jobPtr) {
-			Resources::CallTrigger()->Open();
+		inline void OpenCallTokenAndEnterJobLoop(LPVOID jobPtr) {
+			Resources::CallToken()->Open();
 			WorkerThread::JobLoop();
 		}
 
@@ -702,7 +702,7 @@ namespace Nova {
 				Resources::AvailableFibers().pop_back();
 			}
 			else
-				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)OpenCallTriggerAndEnterJobLoop, nullptr);
+				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)OpenCallTokenAndEnterJobLoop, nullptr);
 
 			return newFiber;
 		}
@@ -712,12 +712,12 @@ namespace Nova {
 #pragma region Pop
 
 		//Attempts to grab an envelope from the queue
-		inline void Pop(Envelope &e) {
-			Resources::QueueWrapper().Pop(e);
+		inline void Pop(Job &j) {
+			Resources::QueueWrapper().Pop(j);
 		}
 
-		inline void PopMain(Envelope &e) {
-			Resources::QueueWrapper().PopMain(e);
+		inline void PopMain(Job &j) {
+			Resources::QueueWrapper().PopMain(j);
 		}
 
 #pragma endregion
@@ -726,42 +726,42 @@ namespace Nova {
 
 		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
 		template<bool Alloc, std::size_t N, typename ... Runnables>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::vector<Envelope> & batchEnvs, Runnables&&... runnables) {
+		static void PackRunnable(std::array<Job, N> & jobs, std::vector<Job> & batchJobs, Runnables&&... runnables) {
 			std::size_t index(0);
-			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnables>(runnables)...);
+			PackRunnable<Alloc>(jobs, index, batchJobs, std::forward<Runnables>(runnables)...);
 		}
 
 		//Breaks a Runnable off the parameter pack and recurses
 		template<bool Alloc, std::size_t N, typename Runnable, typename ... Runnables>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable && runnable, Runnables&&... runnables) {
-			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnable>(runnable));
-			PackRunnable<Alloc>(envs, index, batchEnvs, std::forward<Runnables>(runnables)...);
+		static void PackRunnable(std::array<Job, N> & jobs, std::size_t & index, std::vector<Job> & batchJobs, Runnable && runnable, Runnables&&... runnables) {
+			PackRunnable<Alloc>(jobs, index, batchJobs, std::forward<Runnable>(runnable));
+			PackRunnable<Alloc>(jobs, index, batchJobs, std::forward<Runnables>(runnables)...);
 		}
 
 		//Loads a Runnable into an envelope and pushes it to the given vector. Allocates.
 		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
-			envs[index++] = std::move(Envelope{ std::forward<Runnable>(runnable) });
+		static void PackRunnable(std::array<Job, N> & jobs, std::size_t & index, std::vector<Job> & batchJobs, Runnable&& runnable) {
+			jobs[index++] = std::move(Job{ std::forward<Runnable>(runnable) });
 		}
 
 		//Loads a Runnable into an envelope and pushes it to the given vector
 		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, Runnable&& runnable) {
-			envs[index++] = { &runnable };
+		static void PackRunnable(std::array<Job, N> & jobs, std::size_t & index, std::vector<Job> & batchJobs, Runnable&& runnable) {
+			jobs[index++] = { &runnable };
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector Allocates.
 		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
-			std::vector<Envelope> splitEnvs = SplitBatchJob(std::forward<decltype(j)>(j));
-			batchEnvs.insert(batchEnvs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
+		static void PackRunnable(std::array<Job, N> & jobs, std::size_t & index, std::vector<Job> & batchJobs, BatchFunction<Callable, Params...> && bf) {
+			std::vector<Job> splitEnvs = SplitBatchJob(std::forward<decltype(bf)>(bf));
+			batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
 		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void PackRunnable(std::array<Envelope, N> & envs, std::size_t & index, std::vector<Envelope> & batchEnvs, BatchJob<Callable, Params...> && j) {
-			std::vector<Envelope> splitEnvs = SplitBatchJobNoAlloc(j);
-			envs.insert(envs.end(), splitEnvs.begin(), splitEnvs.end());
+		static void PackRunnable(std::array<Job, N> & envs, std::size_t & index, std::vector<Job> & batchJobs, BatchFunction<Callable, Params...> && bf) {
+			std::vector<Job> splitEnvs = SplitBatchJobNoAlloc(bf);
+			batchJobs.insert(batchJobs.end(), splitEnvs.begin(), splitEnvs.end());
 		}
 
 #pragma endregion
@@ -770,14 +770,12 @@ namespace Nova {
 
 		//Converts a BatchJob into a vector of Envelopes
 		template<typename Callable, typename ... Params>
-		static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Params...> && j) {
-			std::vector<Envelope> jobs;
-			jobs.reserve(j.GetSections());
-			//auto* basePtr = new BatchJob<Callable, Params...>(std::forward<decltype(j)>(j));
-			typedef BatchJob<Callable, Params...> ptrType;
-			std::shared_ptr<ptrType> basePtr = std::make_shared<ptrType>(j);
-			//SealedEnvelope se(Envelope(&Envelope::NoOp, &Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
-			for (unsigned int section = 0; section < j.GetSections(); section++) {
+		static std::vector<Job> SplitBatchJob(BatchFunction<Callable, Params...> && bf) {
+			std::vector<Job> jobs;
+			jobs.reserve(bf.GetSections());
+			typedef BatchFunction<Callable, Params...> ptrType;
+			std::shared_ptr<ptrType> basePtr = std::make_shared<ptrType>(bf);
+			for (unsigned int section = 0; section < bf.GetSections(); section++) {
 				jobs.emplace_back(basePtr);
 				//jobs[section].AddSealedEnvelope(se);
 			}
@@ -786,11 +784,11 @@ namespace Nova {
 
 		//Converts a BatchJob into a vector of Envelopes without copying the job to the heap
 		template<typename Callable, typename ... Params>
-		static std::vector<Envelope> SplitBatchJobNoAlloc(BatchJob<Callable, Params...> & j) {
-			std::vector<Envelope> jobs;
-			jobs.reserve(j.GetSections());
+		static std::vector<Job> SplitBatchJobNoAlloc(BatchFunction<Callable, Params...> & bf) {
+			std::vector<Job> jobs;
+			jobs.reserve(bf.GetSections());
 			for (unsigned int section = 0; section < j.GetSections(); section++) {
-				jobs.emplace_back(&j);
+				jobs.emplace_back(&bf);
 			}
 			return jobs;
 		}
@@ -815,10 +813,10 @@ namespace Nova {
 	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
 	void Call(Runnables&&... runnables) {
 		using namespace internal;
-		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
-		std::vector<Envelope> batchEnvs;
-		PackRunnable<false>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
-		internal::Call<ToMain, FromMain>(std::move(envs), std::move(batchEnvs));
+		std::array<Job, sizeof...(Runnables)-BatchCount<Runnables...>::value> jobs;
+		std::vector<Job> batchJobs;
+		PackRunnable<false>(jobs, batchJobs, std::forward<Runnables>(runnables)...);
+		internal::Call<ToMain, FromMain>(std::move(jobs), std::move(batchJobs));
 	}
 
 	inline void SwitchToMain() {
@@ -828,7 +826,7 @@ namespace Nova {
 	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
 	template<typename Callable, typename ... Params>
 	void ParallelFor(Callable callable, unsigned start, unsigned end, Params... args) {
-		Call(MakeBatchJob([&](unsigned start, unsigned end, Params... args) {
+		Call(BindBatch([&](unsigned start, unsigned end, Params... args) {
 			for (BatchIndex c = start; c < end; c++)
 				callable(c, args...);
 		}, start, end, args...));
@@ -852,7 +850,7 @@ namespace Nova {
 
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		Push<true>(MakeJob(callable, args...));
+		Push<true>(Bind(callable, args...));
 
 		WorkerThread::JobLoop();
 
@@ -878,10 +876,10 @@ namespace Nova {
 
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		Nova::Call<true, true>(MakeJob(callable, args...));
+		Nova::Call<true, true>(Bind(callable, args...));
 
 		for (WorkerThread & wt : threads)
-			Push(MakeJob(WorkerThread::KillWorker));
+			Push(Bind(WorkerThread::KillWorker));
 		for (WorkerThread & wt : threads)
 			wt.Join();
 	}
@@ -890,6 +888,6 @@ namespace Nova {
 	inline void KillAllWorkers() {
 		using namespace internal;
 		for (unsigned c = 0; c < WorkerThread::GetThreadCount(); c++)
-			Nova::Push(MakeJob(WorkerThread::KillWorker));
+			Nova::Push(Bind(WorkerThread::KillWorker));
 	}
 }
