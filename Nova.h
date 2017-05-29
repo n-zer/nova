@@ -182,6 +182,20 @@ namespace Nova {
 	};
 
 	namespace internal{
+		template<typename T>
+		class RaiiPointer {
+		public:
+			RaiiPointer(std::decay_t<T> *& se, std::decay_t<T> * val)
+				: m_ptr(se) {
+				m_ptr = val;
+			}
+			~RaiiPointer() {
+				m_ptr = nullptr;
+			}
+		private:
+			T *& m_ptr;
+		};
+
 		class Envelope {
 		public:
 			Envelope() {}
@@ -201,7 +215,9 @@ namespace Nova {
 
 			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
 			Envelope(Runnable&& runnable)
-				: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_deleteFunc(&Envelope::DeleteRunnable<std::decay_t<Runnable>>), m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))) {
+				: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), 
+				m_deleteFunc(&Envelope::DeleteRunnable<std::decay_t<Runnable>>), 
+				m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))) {
 			}
 
 			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
@@ -222,6 +238,10 @@ namespace Nova {
 			}
 			void OpenSealedEnvelope() {
 				m_sealedEnvelope.Open();
+			}
+
+			SealedEnvelope & GetSealedEnvelope() {
+				return m_sealedEnvelope;
 			}
 
 			template <typename Runnable>
@@ -282,75 +302,6 @@ namespace Nova {
 
 	inline SealedEnvelope::SealedEnvelope(internal::Envelope && e)
 		: m_seal(std::make_shared<Seal>(std::forward<internal::Envelope>(e))) {
-	}
-
-#pragma endregion
-
-#pragma region WorkerThread
-
-	namespace internal {
-		//Forward declarations
-		void PopMain(Envelope & e);
-		void Pop(Envelope & e);
-
-		class WorkerThread {
-		public:
-			WorkerThread() {
-				m_thread = std::thread(InitThread);
-			}
-			static void JobLoop() {
-				while (Running()) {
-					Envelope e;
-					if (WorkerThread::GetThreadId() == 0)
-						PopMain(e);
-					else
-						Pop(e);
-					e();
-				}
-			}
-			static std::size_t GetThreadId() {
-				return ThreadId();
-			}
-			static std::size_t GetThreadCount() {
-				return ThreadCount();
-			}
-			static void KillWorker() {
-				Running() = false;
-			}
-			void Join() {
-				m_thread.join();
-			}
-		private:
-			static void InitThread() {
-				{
-					std::lock_guard<std::mutex> lock(InitLock());
-					ThreadId() = ThreadCount();
-					ThreadCount()++;
-				}
-				ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
-				JobLoop();
-			}
-
-			//Meyers singletons
-			static std::size_t & ThreadId() {
-				static thread_local std::size_t id = 0;
-				return id;
-			}
-			static bool & Running() {
-				static thread_local bool running = true;
-				return running;
-			}
-			static std::size_t & ThreadCount() {
-				static std::size_t count = 1;
-				return count;
-			}
-			static std::mutex & InitLock() {
-				static std::mutex lock;
-				return lock;
-			}
-
-			std::thread m_thread;
-		};
 	}
 
 #pragma endregion
@@ -486,7 +437,139 @@ namespace Nova {
 				static thread_local SealedEnvelope * ct;
 				return ct;
 			}
+			static SealedEnvelope *& DependentToken() {
+				static thread_local SealedEnvelope * se;
+				return se;
+			}
 		};
+	}
+
+#pragma region WorkerThread
+
+	namespace internal {
+		//Forward declarations
+		void PopMain(Envelope & e);
+		void Pop(Envelope & e);
+
+		class WorkerThread {
+		public:
+			WorkerThread() {
+				m_thread = std::thread(InitThread);
+			}
+			static void JobLoop() {
+				while (Running()) {
+					Envelope e;
+					if (WorkerThread::GetThreadId() == 0)
+						PopMain(e);
+					else
+						Pop(e);
+
+					RaiiPointer<SealedEnvelope> rp(Resources::DependentToken(), &e.GetSealedEnvelope());
+					e();
+				}
+			}
+			static std::size_t GetThreadId() {
+				return ThreadId();
+			}
+			static std::size_t GetThreadCount() {
+				return ThreadCount();
+			}
+			static void KillWorker() {
+				Running() = false;
+			}
+			void Join() {
+				m_thread.join();
+			}
+		private:
+			static void InitThread() {
+				{
+					std::lock_guard<std::mutex> lock(InitLock());
+					ThreadId() = ThreadCount();
+					ThreadCount()++;
+				}
+				ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+				JobLoop();
+			}
+
+			//Meyers singletons
+			static std::size_t & ThreadId() {
+				static thread_local std::size_t id = 0;
+				return id;
+			}
+			static bool & Running() {
+				static thread_local bool running = true;
+				return running;
+			}
+			static std::size_t & ThreadCount() {
+				static std::size_t count = 1;
+				return count;
+			}
+			static std::mutex & InitLock() {
+				static std::mutex lock;
+				return lock;
+			}
+
+			std::thread m_thread;
+		};
+	}
+
+#pragma endregion
+
+	namespace internal{
+
+#pragma region Push
+
+		//Queues a set of Runnables
+		template<bool ToMain, bool Dependent, typename ... Runnables >
+		void Push(Runnables&&... runnables) {
+			using namespace internal;
+			std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
+			std::vector<Envelope> batchEnvs;
+			batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
+			PackRunnable<true>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
+			PushPicker<ToMain, Dependent>(std::move(envs));
+			PushPicker<ToMain, Dependent>(std::move(batchEnvs));
+		}
+
+		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<Dependent, int> = 0>
+		void PushPicker(Collection && collection) {
+			internal::Push<ToMain>(*Resources::DependentToken(), std::forward<Collection>(collection));
+		}
+
+		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<!Dependent, int> = 0>
+		void PushPicker(Collection && collection) {
+			internal::Push<ToMain>(std::forward<Collection>(collection));
+		}
+
+		//Queues an array of Envelopes
+		template<bool ToMain, std::size_t N>
+		void Push(std::array<internal::Envelope, N> && envs) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		template<bool ToMain, std::size_t N>
+		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		//Queues a vector of envelopes
+		template<bool ToMain>
+		void Push(std::vector<internal::Envelope> && envs) {
+			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+		//Queues a vector of envelopes
+		template<bool ToMain>
+		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
+			for (Envelope & e : envs)
+				e.AddSealedEnvelope(se);
+			Push<ToMain>(std::forward<decltype(envs)>(envs));
+		}
+
+#pragma endregion
+
 
 #pragma region Call
 
@@ -494,7 +577,7 @@ namespace Nova {
 		void Call(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				Nova::internal::Push<FromMain>(MakeJob(&FinishCalledJob, currentFiber));
+				Nova::Push<FromMain>(MakeJob(&FinishCalledJob, currentFiber));
 			};
 
 			SealedEnvelope se(Envelope{ &completionJob });
@@ -506,7 +589,7 @@ namespace Nova {
 		}
 
 		template<bool ToMain, std::size_t N>
-		void CallPush(SealedEnvelope se, std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
+		void CallPush(SealedEnvelope & se, std::array<Envelope, N> && envs, std::vector<Envelope> && batchEnvs) {
 			Push<ToMain>(se, std::forward<decltype(envs)>(envs));
 			Push<ToMain>(se, std::forward<decltype(batchEnvs)>(batchEnvs));
 		}
@@ -542,43 +625,6 @@ namespace Nova {
 				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)OpenCallTriggerAndEnterJobLoop, nullptr);
 
 			return newFiber;
-		}
-
-#pragma endregion
-
-#pragma region Push
-
-		//Queues an envelope
-		template<bool ToMain>
-		void Push(internal::Envelope&& e) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<internal::Envelope>(e));
-		}
-
-		//Queues an array of Envelopes
-		template<bool ToMain, std::size_t N>
-		void Push(std::array<internal::Envelope, N> && envs) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		template<bool ToMain, std::size_t N>
-		void Push(SealedEnvelope & se, std::array<Envelope, N> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		//Queues a vector of envelopes
-		template<bool ToMain>
-		void Push(std::vector<internal::Envelope> && envs) {
-			internal::Resources::QueueWrapper().Push<ToMain>(std::forward<decltype(envs)>(envs));
-		}
-
-		//Queues a vector of envelopes
-		template<bool ToMain>
-		void Push(SealedEnvelope & se, std::vector<Envelope> && envs) {
-			for (Envelope & e : envs)
-				e.AddSealedEnvelope(se);
-			Push<ToMain>(std::forward<decltype(envs)>(envs));
 		}
 
 #pragma endregion
@@ -695,13 +741,13 @@ namespace Nova {
 	//Queues a set of Runnables
 	template<bool ToMain = false, typename ... Runnables>
 	void Push(Runnables&&... runnables) {
-		using namespace internal;
-		std::array<Envelope, sizeof...(Runnables)-BatchCount<Runnables...>::value> envs;
-		std::vector<Envelope> batchEnvs;
-		batchEnvs.reserve(BatchCount<Runnables...>::value * 4);
-		PackRunnable<true>(envs, batchEnvs, std::forward<Runnables>(runnables)...);
-		Push<ToMain>(std::move(envs));
-		Push<ToMain>(std::move(batchEnvs));
+		internal::Push<ToMain, false>(std::forward<Runnables>(runnables)...);
+	}
+
+	//Queues a set of Runnables
+	template<bool ToMain = false, typename ... Runnables>
+	void PushDependent(Runnables&&... runnables) {
+		internal::Push<ToMain, true>(std::forward<Runnables>(runnables)...);
 	}
 
 	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
@@ -771,7 +817,7 @@ namespace Nova {
 
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		Call<true, true>(MakeJob(callable, args...));
+		Nova::Call<true, true>(MakeJob(callable, args...));
 
 		for (WorkerThread & wt : threads)
 			Push(MakeJob(WorkerThread::KillWorker));
