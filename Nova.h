@@ -10,6 +10,8 @@
 
 #include "QueueAdaptors.h"
 
+#define NOVA_CACHE_LINE_BYTES 64
+
 namespace Nova {
 
 #pragma region SimpleJob & BatchJob
@@ -229,6 +231,15 @@ namespace Nova {
 	};
 
 	namespace internal{
+
+		template<typename T>
+		constexpr std::size_t ceil(T num)
+		{
+			return (static_cast<T>(static_cast<std::size_t>(num)) == num)
+				? static_cast<std::size_t>(num)
+				: static_cast<std::size_t>(num) + ((num > 0) ? 1 : 0);
+		}
+
 		template<typename T>
 		class RaiiPointer {
 		public:
@@ -243,11 +254,13 @@ namespace Nova {
 			T *& m_ptr;
 		};
 
-		class Envelope {
+		constexpr std::size_t padSize = static_cast<std::size_t>(ceil(NOVA_CACHE_LINE_BYTES*1.5));
+
+		class /*alignas(NOVA_CACHE_LINE_BYTES)*/ Envelope {
 		public:
 			Envelope() {}
 			~Envelope() {
-				m_deleteFunc(m_runnable);
+				inner.m_deleteFunc(inner.m_runnable);
 			}
 			Envelope(const Envelope &) = delete;
 			Envelope operator=(const Envelope &) = delete;
@@ -255,40 +268,46 @@ namespace Nova {
 				Move(std::forward<Envelope>(e));
 			}
 			Envelope& operator=(Envelope && e) noexcept {
-				m_deleteFunc(m_runnable);
+				inner.m_deleteFunc(inner.m_runnable);
 				Move(std::forward<Envelope>(e));
 				return *this;
 			}
 
 			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
 			Envelope(Runnable&& runnable)
-				: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), 
-				m_deleteFunc(&Envelope::DeleteRunnable<std::decay_t<Runnable>>), 
-				m_runnable(new std::decay_t<Runnable>(std::forward<Runnable>(runnable))) {
+				: inner(
+					&Envelope::RunRunnable<std::decay_t<Runnable>>,
+					&Envelope::DeleteRunnable<std::decay_t<Runnable>>,
+					new std::decay_t<Runnable>(std::forward<Runnable>(runnable))
+				) {
 			}
 
 			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, Envelope>::value, int> = 0>
 			Envelope(Runnable * runnable)
-				: m_runFunc(&Envelope::RunRunnable<std::decay_t<Runnable>>), m_runnable(runnable) {
+				: inner(
+					&Envelope::RunRunnable<std::decay_t<Runnable>>,
+					&Envelope::NoOp,
+					runnable
+				) {
 			}
 
 			Envelope(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
-				: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
+				: inner( runFunc, deleteFunc, runnable ) {
 			}
 
 			void operator () () const {
-				m_runFunc(m_runnable);
+				inner.m_runFunc(inner.m_runnable);
 			}
 
 			void AddSealedEnvelope(SealedEnvelope & se) {
-				m_sealedEnvelope = se;
+				inner.m_sealedEnvelope = se;
 			}
 			void OpenSealedEnvelope() {
-				m_sealedEnvelope.Open();
+				inner.m_sealedEnvelope.Open();
 			}
 
 			SealedEnvelope & GetSealedEnvelope() {
-				return m_sealedEnvelope;
+				return inner.m_sealedEnvelope;
 			}
 
 			template <typename Runnable, std::enable_if_t<!IsShared<Runnable>::value, int> = 0>
@@ -310,19 +329,28 @@ namespace Nova {
 
 		private:
 			void Move(Envelope && e) noexcept {
-				m_runFunc = e.m_runFunc;
-				m_deleteFunc = e.m_deleteFunc;
-				m_runnable = e.m_runnable;
-				m_sealedEnvelope = std::move(e.m_sealedEnvelope);
-				e.m_runFunc = &Envelope::NoOp;
-				e.m_deleteFunc = &Envelope::NoOp;
-				e.m_runnable = nullptr;
+				inner.m_runFunc = e.inner.m_runFunc;
+				inner.m_deleteFunc = e.inner.m_deleteFunc;
+				inner.m_runnable = e.inner.m_runnable;
+				inner.m_sealedEnvelope = std::move(e.inner.m_sealedEnvelope);
+				e.inner.m_runFunc = &Envelope::NoOp;
+				e.inner.m_deleteFunc = &Envelope::NoOp;
+				e.inner.m_runnable = nullptr;
 			}
 
-			void(*m_runFunc)(void *) = &Envelope::NoOp;
-			void(*m_deleteFunc)(void*) = &Envelope::NoOp;
-			void * m_runnable = nullptr;
-			SealedEnvelope m_sealedEnvelope;
+			struct EnvelopeInternal {
+				EnvelopeInternal() {}
+				EnvelopeInternal(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable) 
+					: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
+				}
+				void(*m_runFunc)(void *) = &Envelope::NoOp;
+				void(*m_deleteFunc)(void*) = &Envelope::NoOp;
+				void * m_runnable = nullptr;
+				SealedEnvelope m_sealedEnvelope;
+			};
+
+			EnvelopeInternal inner;
+			char padding[padSize - sizeof(EnvelopeInternal)];
 		};
 	}
 
