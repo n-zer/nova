@@ -18,10 +18,22 @@ namespace Nova {
 
 #pragma region Helpers
 
+		template <class F, class... Args>
+		inline auto invoke(F&& f, Args&&... args) ->
+			decltype(std::forward<F>(f)(std::forward<Args>(args)...)) {
+			return std::forward<F>(f)(std::forward<Args>(args)...);
+		}
+
+		template <class Base, class T, class Derived>
+		inline auto invoke(T Base::*pmd, Derived&& ref) ->
+			decltype(std::forward<Derived>(ref).*pmd) {
+			return std::forward<Derived>(ref).*pmd;
+		}
+
 		namespace detail {
 			template <class F, class Tuple, std::size_t... I>
 			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
-				return std::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+				return invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
 			}
 		}  // namespace detail
 
@@ -29,7 +41,7 @@ namespace Nova {
 		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
 			return detail::apply_impl(
 				std::forward<F>(f), std::forward<Tuple>(t),
-				std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
+				std::make_index_sequence<std::tuple_size<std::decay_t<Tuple>>::value>{});
 		}
 
 		template<class Tuple>
