@@ -162,6 +162,41 @@ namespace Nova {
 
 #pragma endregion
 
+
+#pragma region Helpers
+
+	namespace internal{
+
+		template<typename... Args> struct BatchCount;
+
+		template<>
+		struct BatchCount<> {
+			static const int value = 0;
+		};
+
+		template<typename ... Params, typename... Args>
+		struct BatchCount<BatchJob<Params...>, Args...> {
+			static const int value = 1 + BatchCount<Args...>::value;
+		};
+
+		template<typename First, typename... Args>
+		struct BatchCount<First, Args...> {
+			static const int value = BatchCount<Args...>::value;
+		};
+
+		template<typename T>
+		struct IsShared {
+			static const bool value = false;
+		};
+
+		template<typename T>
+		struct IsShared<std::shared_ptr<T>> {
+			static const bool value = true;
+		};
+	}
+
+#pragma endregion
+
 #pragma region Envelope & SealedEnvelope
 
 	namespace internal{ class Envelope; }
@@ -244,9 +279,14 @@ namespace Nova {
 				return m_sealedEnvelope;
 			}
 
-			template <typename Runnable>
+			template <typename Runnable, std::enable_if_t<!IsShared<Runnable>::value, int> = 0>
 			static void RunRunnable(void * runnable) {
 				(static_cast<Runnable*>(runnable))->operator()();
+			}
+
+			template <typename Runnable, std::enable_if_t<IsShared<Runnable>::value, int> = 0>
+			static void RunRunnable(void * runnable) {
+				static_cast<Runnable*>(runnable)->get()->operator()();
 			}
 
 			template <typename Runnable>
@@ -693,11 +733,13 @@ namespace Nova {
 		static std::vector<Envelope> SplitBatchJob(BatchJob<Callable, Params...> && j) {
 			std::vector<Envelope> jobs;
 			jobs.reserve(j.GetSections());
-			auto* basePtr = new BatchJob<Callable, Params...>(std::forward<decltype(j)>(j));
-			SealedEnvelope se(Envelope(&Envelope::NoOp, &Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
+			//auto* basePtr = new BatchJob<Callable, Params...>(std::forward<decltype(j)>(j));
+			typedef BatchJob<Callable, Params...> ptrType;
+			std::shared_ptr<ptrType> basePtr = std::make_shared<ptrType>(j);
+			//SealedEnvelope se(Envelope(&Envelope::NoOp, &Envelope::DeleteRunnable<BatchJob<Callable, Params...>>, basePtr));
 			for (unsigned int section = 0; section < j.GetSections(); section++) {
 				jobs.emplace_back(basePtr);
-				jobs[section].AddSealedEnvelope(se);
+				//jobs[section].AddSealedEnvelope(se);
 			}
 			return jobs;
 		}
@@ -712,27 +754,6 @@ namespace Nova {
 			}
 			return jobs;
 		}
-
-#pragma endregion
-
-#pragma region Helpers
-
-		template<typename... Args> struct BatchCount;
-
-		template<>
-		struct BatchCount<> {
-			static const int value = 0;
-		};
-
-		template<typename ... Params, typename... Args>
-		struct BatchCount<BatchJob<Params...>, Args...> {
-			static const int value = 1 + BatchCount<Args...>::value;
-		};
-
-		template<typename First, typename... Args>
-		struct BatchCount<First, Args...> {
-			static const int value = BatchCount<Args...>::value;
-		};
 
 #pragma endregion
 
