@@ -350,7 +350,7 @@ namespace nova {
 		}
 
 		template <typename Runnable>
-		shared_token(Runnable runnable)
+		shared_token(Runnable&& runnable)
 			: m_job(std::forward<Runnable>(runnable)) {
 		}
 
@@ -419,6 +419,7 @@ namespace nova {
 		public:
 			queue_wrapper() {
 				InitializeConditionVariable(&s_cv);
+				InitializeConditionVariable(&s_mainCV);
 			}
 
 			void pop(T& item) {
