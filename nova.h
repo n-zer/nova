@@ -202,8 +202,12 @@ namespace nova {
 		dependency_token() {}
 		dependency_token(impl::job & e);
 		dependency_token(impl::job && e);
-		template<typename Runnable>
-		dependency_token(Runnable runnable);
+		dependency_token(const dependency_token &) = default;
+		dependency_token& operator=(const dependency_token&) = default;
+		dependency_token(dependency_token &&) = default;
+		dependency_token& operator=(dependency_token&&) = default;
+		template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int> = 0>
+		dependency_token(Runnable&& runnable);
 		void Open() {
 			m_token.reset();
 		}
@@ -284,6 +288,10 @@ namespace nova {
 			void set_dependency_token(dependency_token & se) {
 				m_data.m_callToken = se;
 			}
+
+			void set_dependency_token(dependency_token && se) {
+				m_data.m_callToken = std::forward<dependency_token>(se);
+			}
 			void open_dependency_token() {
 				m_data.m_callToken.Open();
 			}
@@ -332,7 +340,7 @@ namespace nova {
 			};
 
 			JobData m_data;
-			char padding[padSize - sizeof(JobData)];
+			//char padding[padSize - sizeof(JobData)];
 		};
 	}
 
@@ -353,9 +361,9 @@ namespace nova {
 		impl::job m_job;
 	};
 
-	template<typename Runnable>
-	dependency_token::dependency_token(Runnable runnable)
-		: m_token(std::make_shared<shared_token>(std::forward<Runnable>(runnable))) {
+	template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int> = 0>
+	dependency_token::dependency_token(Runnable&& runnable)
+		: m_token(std::make_shared<shared_token>(std::forward<std::decay_t<Runnable>>(runnable))) {
 	}
 
 	inline dependency_token::dependency_token(impl::job & e)
