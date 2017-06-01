@@ -75,7 +75,7 @@ int main() {
 
 Here we start with `nova::start_async`, which doesn't return until `nova::kill_all_workers` is called elsewhere in the program. This allows us to use `nova::push`, which returns immediately, rather than `nova::call`.
 
-If we had changed only those two calls, the program would run `NextJob` and `JobWithParam` in parallel then continue to run indefinitely in an idle state. To get `nova::kill_all_workers` to run once both `NextJob` and `JobWithParam` have finished we need to use a `dependency_token`, which takes a **runnable** object and calls it once all copies of the token are destroyed.
+If we had changed only those two calls, the program would run `NextJob` and `JobWithParam` in parallel then continue to run indefinitely in an idle state. To get `nova::kill_all_workers` to run once both `NextJob` and `JobWithParam` have finished we need to use a `nova::dependency_token`, which takes a **runnable** object and calls it once all copies of the token are destroyed.
 
 Because `InitialJob`, `NextJob`, and `JobWithParam` all have a copy of `dt`, `nova::kill_all_workers` will only run once all three of those functions have returned, at which point `nova::start_async` will also return and the program will end.
 
@@ -83,7 +83,7 @@ Despite the syntax being heavier, asynchronous invocations are much more flexibl
 
 #### Semi-synchronous usage
 
-We can rewrite the previous example in a way that uses both a synchronous start *and* an asynchronous invocation, and doesn't need any `dependency_token`s:
+We can rewrite the previous example in a way that uses both a synchronous start *and* an asynchronous invocation, and doesn't need any `nova::dependency_token`s:
 
 ```C++
 #include <iostream>
