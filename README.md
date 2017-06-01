@@ -2,6 +2,24 @@
 
 nova is a header-only C++14 job system for Windows. It spins up a thread pool which you can push function invocations to syncronously, asynchronously, or semi-synchronously.
 
+## Table of contents
+* [Getting started](#getting-started)
+* [Synchronous usage](#synchronous-usage)
+	* [`nova::start_sync`](#synchronous-usage)
+	* [`nova::call`](#synchronous-usage)
+	* [`nova::bind`](#synchronous-usage)
+* [Asynchronous usage](#asynchronous-usage)
+	* [`nova::start_async`](#asynchronous-usage)
+	* [`nova::push`](#asynchronous-usage)
+	* [`nova::dependency_token`](#asynchronous-usage)
+* [Semi-synchronous usage](#semi-synchronous-usage)
+	* [`nova::push_dependent`](#semi-synchronous-usage)
+* [Batching](#batching)
+	* [`nova::bind_batch`](#batching)
+	* [`nova::parallel_for`](#batching)
+* [Main thread invocation](#main-thread-invocation)
+	* [`nova::switch_to_main`](#main-thread-invocation)
+
 ## Getting started
 
 Using the system is easy: download the headers, `#include nova.h`, and use all the stuff in the `nova` namespace.
@@ -42,11 +60,13 @@ int main() {
 }
 ```
 
-After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns* when they've all finished. You can use `nova::bind` to get a **runnable** wrapper for a **callable** object and its parameters (or `std::bind`, though there are some reasons to prefer `nova::bind` that I'll cover later).
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns\* when they've all finished. You can use `nova::bind` to get a **runnable** wrapper for a **callable** object and its parameters\*\* (or `std::bind`, the two are functionally equivalent).
 
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, job system will shutdown, `nova::start_sync` will return, and the program will end.
 
-\* *Note that `nova::call` will not necessarily return to the same thread it was called from*
+\* *Note that `nova::call` will not necessarily return to the same thread it was called from.*
+
+\*\* *Also note that, like `std::bind`, `nova::bind` will take its arguments by value by default, even if the **callable** takes them by reference. If you want to pass a parameter truly by reference you will need to wrap it with `std::ref` or `std::cref`, and when doing so you should take extra care to avoid dangling references.*
 
 ## Asynchronous usage
 #### `nova::start_async`, `nova::push`, `nova::dependency_token`
@@ -191,21 +211,21 @@ However, if you can process multiple elements at once (e.g. SIMD) it may be more
 `nova::call`, `nova::push`, and `nova::push_dependent` all have a template parameter that controls whether their invocations will happen on the main thread, and `nova::call` has a second template parameter that controls whether the call should return on the main thread:
 
 ```C++
-// These will run their invokees on the main thread
+// These will run their invokees on the main thread.
 nova::call<true>(...);
 nova::push<true>(...);
 nova::push_dependent<true>(...);
 
-// These may run their invokees on any thread
+// These may run their invokees on any thread.
 nova::call<false>(...);
 nova::push<false>(...);
 nova::push_dependent<false>(...);
 
-// These will always return to the main thread
+// These will always return to the main thread.
 nova::call<true, true>(...);
 nova::call<false, true>(...);
 
-// These may return to any thread (which may be different from the thread they were called on)
+// These may return to any thread (which may be different from the thread they were called on).
 nova::call<true, false>(...);
 nova::call<false, false>(...);
 ```
@@ -213,9 +233,9 @@ nova::call<false, false>(...);
 `nova::switch_to_main` allows you to move to the main thread at any time:
 
 ```C++
-... // We're on an arbitrary worker thread, main or otherwise
+... // We're on an arbitrary worker thread, main or otherwise.
 
 nova::switch_to_main();
 
-... // Now we're on the main thread
+... // Now we're on the main thread.
 ```
