@@ -31,7 +31,7 @@ int main() {
 }
 ```
 
-The program starts with a call to `nova::start_sync` which initializes the job system, enters the first job, represented here by `InitialJob`, and returns when that job finishes. The first job can be any **callable** object, meaning any object that can be called like a function (e.g. function pointers, member function pointers, lambdas, classes that define `operator()`, etc.), and if it needs any parameters you can add them like so:
+The program starts with a call to `nova::start_sync` which initializes the job system, enters the first job, represented here by `InitialJob`, and returns when that job finishes. The first job can be any **callable** object (e.g. function pointers, member function pointers, lambdas, classes that define `operator()`, etc.), and if it needs any parameters you can add them like so:
 
 ```C++
 void InitialJob(int number, Foo foo) { ... }
@@ -41,6 +41,6 @@ int main() {
 }
 ```
 
-After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns when they've all finished. If you need to you can make a **runnable** object from a **callable** object and its parameters with `nova::bind` (or `std::bind`, though there are some reasons to prefer `nova::bind` that I'll cover later).
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns when they've all finished. You can use `nova::bind` to get a **runnable** wrapper for a **callable** object and its parameters (or `std::bind`, though there are some reasons to prefer `nova::bind` that I'll cover later).
 
-Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return and the job system will shutdown, then `nova::start_sync` will return and the program will end.
+Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, job system will shutdown, `nova::start_sync` will return, and the program will end.
