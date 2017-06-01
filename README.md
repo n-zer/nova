@@ -6,7 +6,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 
 Using the system is easy: download the headers, `#include nova.h`, and use all the stuff in the `nova` namespace.
 
-#### Synchronous usage
+### Synchronous usage
 
 Here's a sample program to get you started. It starts the job system, runs `NextJob` and `JobWithParam` in parallel, then exits.
 
@@ -15,19 +15,19 @@ Here's a sample program to get you started. It starts the job system, runs `Next
 #include "nova.h"
 
 void NextJob() {
-  std::cout << "Hello from NextJob" << std::endl;
+	std::cout << "Hello from NextJob" << std::endl;
 }
 
 void JobWithParam(int number) {
-  std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
+	std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
 }
 
 void InitialJob() {
-  nova::call(&NextJob, nova::bind(&JobWithParam, 5));
+	nova::call(&NextJob, nova::bind(&JobWithParam, 5));
 }
 
 int main() {
-  nova::start_sync(&InitialJob);
+	nova::start_sync(&InitialJob);
 }
 ```
 
@@ -37,7 +37,7 @@ We start with a call to `nova::start_sync`, which initializes the job system, en
 void InitialJob(int number, Foo foo) { ... }
 
 int main() {
-  nova::start_sync(&InitialJob, 5, Foo());
+	nova::start_sync(&InitialJob, 5, Foo());
 }
 ```
 
@@ -47,7 +47,7 @@ Once `NextJob` and `JobWithParam` return `nova::call` will return, then `Initial
 
 \* *Note that `nova::call` will not necessarily return to the same thread it was called from*
 
-#### Asynchronous usage
+### Asynchronous usage
 
 Let's rewrite the sample program to work asynchronously:
 
@@ -56,20 +56,20 @@ Let's rewrite the sample program to work asynchronously:
 #include "nova.h"
 
 void NextJob(nova::dependency_token dt) {
-  std::cout << "Hello from NextJob" << std::endl;
+	std::cout << "Hello from NextJob" << std::endl;
 }
 
 void JobWithParam(int number, nova::dependency_token dt) {
-  std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
+	std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
 }
 
 void InitialJob() {
-  nova::dependency_token dt(&nova::kill_all_workers);
-  nova::push(nova::bind(&NextJob, dt), nova::bind(&JobWithParam, 5, dt));
+	nova::dependency_token dt(&nova::kill_all_workers);
+	nova::push(nova::bind(&NextJob, dt), nova::bind(&JobWithParam, 5, dt));
 }
 
 int main() {
-  nova::start_async(&InitialJob);
+	nova::start_async(&InitialJob);
 }
 ```
 
@@ -81,7 +81,7 @@ Because `InitialJob`, `NextJob`, and `JobWithParam` all have a copy of `dt`, `no
 
 Despite the syntax being heavier, asynchronous invocations are much more flexible than synchronous invocations; any dependency graph can be implemented with `nova::push` and `nova::dependency_token`s.
 
-#### Semi-synchronous usage
+### Semi-synchronous usage
 
 We can rewrite the previous example in a way that uses both a synchronous start *and* an asynchronous invocation, and doesn't need any `nova::dependency_token`s:
 
@@ -90,19 +90,19 @@ We can rewrite the previous example in a way that uses both a synchronous start 
 #include "nova.h"
 
 void NextJob() {
-  std::cout << "Hello from NextJob" << std::endl;
+	std::cout << "Hello from NextJob" << std::endl;
 }
 
 void JobWithParam(int number) {
-  std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
+	std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
 }
 
 void InitialJob() {
-  nova::push_dependent(&NextJob, nova::bind(&JobWithParam, 5));
+	nova::push_dependent(&NextJob, nova::bind(&JobWithParam, 5));
 }
 
 int main() {
-  nova::start_sync(&InitialJob);
+	nova::start_sync(&InitialJob);
 }
 ```
 
@@ -112,9 +112,9 @@ int main() {
 
 ```C++
 int main() {
-  nova::start_sync([]() {
-    nova::call(&InitialJob);
-  });
+	nova::start_sync([]() {
+		nova::call(&InitialJob);
+	});
 }
 ```
 
