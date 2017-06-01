@@ -31,10 +31,16 @@ int main() {
 }
 ```
 
-There are a few things going on here.
+The program starts with a call to `nova::start_sync` which initializes the job system, enters the first job, represented here by `InitialJob`, and returns when that job finishes. The first job can be any **callable** object, meaning any object that can be called like a function (e.g. function pointers, member function pointers, lambdas, classes that define `operator()`, etc.), and if it needs any parameters you can add them like so:
 
-First, the program starts with a call to `nova::start_sync` which initializes the job system, creating the thread pool, performing some miscellaneous tasks, and enters the first job, represented here by `InitialJob`. The first job can be any **callable object**, meaning any object that can be called like a function (i.e. `callableObj()`). The function pointer `&InitialJob` satisfies this requirement, as would a member function pointer, a lambda, a `std::function`, etc. If the callable object has parameters you can add them after the **callable object** (e.g. `nova::start_sync(&InitialJob, true, 5, &objOfTypeFoo);` if `InitialJob` took a `bool`, an `int`, and a `Foo*`). When this first job returns the job system will shut down and `nova::start_sync` will return.
+```C++
+void InitialJob(int number, Foo foo) { ... }
 
-After the call to `start_sync` `InitialJob` will run, and we reach the call to `nova::call`. `nova::call` takes any number of **callable objects** that can be called with _no parameters_, pushes them to the thread pool, and returns when they've all finished. It's just like a regular function call, but it calls multiple functions simultaneously. If your **callable objects** have parameters you can use `nova::bind`, which takes a **callable object** and all its parameters and returns a wrapper that allows it to be called with an empty call operator. It's essentially the same as `std::bind`, but it returns a `nova::function` rather than a `std::function`. You can use `std::bind` instead if you like, it makes no difference.
+int main() {
+  nova::start_sync(&InitialJob, 5, Foo());
+}
+```
 
-After `nova::call` is called `NextJob` and `JobWithParam` should run simultaneously. Once both have returned `nova::call` will return, `InitialJob` will return, then the job system will shut down and `nova::start_sync` will return.
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns when they've all finished. If you need to you can make a **runnable** object from a **callable** object and its parameters with `nova::bind` (or `std::bind`, though there are some reasons to prefer `nova::bind` that I'll cover later).
+
+Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return and the job system will shutdown, then `nova::start_sync` will return and the program will end.
