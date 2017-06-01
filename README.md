@@ -7,7 +7,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 Using the system is easy: download the headers, `#include nova.h`, and use all the stuff in the `nova` namespace.
 
 ## Synchronous usage
-#### `nova::start_sync`, `nova::bind`, & `nova::call`
+#### `nova::start_sync`, `nova::call`, `nova::bind`
 
 Here's a sample program to get you started. It starts the job system, runs `NextJob` and `JobWithParam` in parallel, then exits.
 
@@ -32,7 +32,7 @@ int main() {
 }
 ```
 
-We start with a call to `nova::start_sync`, which initializes the job system, enters the first job, represented here by `InitialJob`, and returns when that job finishes. The first job can be any **callable** object (e.g. function pointers, member function pointers, lambdas, classes that define `operator()`, etc.), and if it needs any parameters you can add them like so:
+We start with a call to `nova::start_sync`, which initializes the job system, enters the first job (represented here by `InitialJob`), and returns when that job finishes. The first job can be any **callable** object (e.g. function pointers, member function pointers, lambdas, classes that define `operator()`, etc.), and if it needs any parameters you can add them like so:
 
 ```C++
 void InitialJob(int number, Foo foo) { ... }
@@ -49,7 +49,7 @@ Once `NextJob` and `JobWithParam` return `nova::call` will return, then `Initial
 \* *Note that `nova::call` will not necessarily return to the same thread it was called from*
 
 ## Asynchronous usage
-#### `nova::start_async`, `nova::push`, & `nova::dependency_token`
+#### `nova::start_async`, `nova::push`, `nova::dependency_token`
 
 Let's rewrite the sample program to work asynchronously:
 
@@ -124,7 +124,7 @@ int main() {
 Semi-synchronous invocations are more expensive than asynchronous invocations when they actually extend a synchronous invocation (and negligibly more so when they don't), but they allow dependency graphs implemented with asynchronous invocations to be invoked synchronously.
 
 ## Batching
-#### `nova::bind_batch` & `nova::parallel_for`
+#### `nova::bind_batch`, `nova::parallel_for`
 
 `nova::bind_batch` allows you to take a **callable** object that takes a numerical range as two of its parameters and turn it into a **batch runnable**. Rather than being invoked as a single job, **batch runnables** are invoked as a set of jobs (one per thread), with each one receiving a contiguous portion of the original range.
 
