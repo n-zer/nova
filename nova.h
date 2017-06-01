@@ -240,9 +240,9 @@ namespace nova {
 			T *& m_ptr;
 		};
 
-		constexpr std::size_t padSize = static_cast<std::size_t>(ceil(NOVA_CACHE_LINE_BYTES*1.5));
+		constexpr std::size_t padSize = static_cast<std::size_t>(ceil(NOVA_CACHE_LINE_BYTES));
 
-		class /*alignas(NOVA_CACHE_LINE_BYTES)*/ job {
+		class alignas(NOVA_CACHE_LINE_BYTES) job {
 		public:
 			job() {}
 			~job() {
@@ -340,7 +340,7 @@ namespace nova {
 			};
 
 			JobData m_data;
-			//char padding[padSize - sizeof(JobData)];
+			char padding[padSize - sizeof(JobData)];
 		};
 	}
 
