@@ -62,28 +62,27 @@ int main() {
 }
 ```
 
-After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns\* when they've all finished. You can use `nova::bind` to get a **runnable** wrapper for a **callable** object and its parameters (you can use `std::bind` if you want as well, but the behavior is slightly different\*\*).
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns\* when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters\*\*.
 
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, job system will shutdown, `nova::start_sync` will return, and the program will end.
 
-\* *Note that `nova::call` will not necessarily return to the same thread it was called from.*
+\* *`nova::call` will not necessarily return to the same thread it was called from.*
 
-\*\* *`nova::bind` and `std::bind` differ in how they deal with references:*
+\*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`.*
 ```C++
 void TestFunc(int& n){ n++; }
-void TestFunc2(const int& n) {};
 
 int test = 0;
 
-std::bind(TestFunc, test)(); // Compiles; TestFunc modifies a copy of test.
-nova::bind(TestFunc, test)(); // Doesn't compile; copy of test is const.
+std::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
+nova::bind(TestFunc, test)();
 
-nova::bind(TestFunc, std::ref(test))(); // Both compile; TestFunc modifies test.
+// test is still 0.
+
+nova::bind(TestFunc, std::ref(test))(); // TestFunc is passed a reference to test.
 std::bind(TestFunc, std::ref(test))();
 
-nova::bind(TestFunc2, test)(); // Both compile.
-std::bind(TestFunc2, test)();
-
+// test is now 2.
 ```
 
 ## Asynchronous usage
