@@ -44,11 +44,11 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::call(&NextJob, nova::bind(&JobWithParam, 5));
+	nova::call(NextJob, nova::bind(JobWithParam, 5));
 }
 
 int main() {
-	nova::start_sync(&InitialJob);
+	nova::start_sync(InitialJob);
 }
 ```
 
@@ -58,32 +58,32 @@ We start with a call to `nova::start_sync`, which initializes the job system, en
 void InitialJob(int number, Foo foo) { ... }
 
 int main() {
-	nova::start_sync(&InitialJob, 5, Foo());
+	nova::start_sync(InitialJob, 5, Foo());
 }
 ```
 
-After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns\* when they've all finished. You can use `nova::bind` to get a **runnable** wrapper for a **callable** object and its parameters (you can use `std::bind` if you want as well, but the behavior is slightly different\*\*).
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns\* when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters\*\*.
 
-Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, job system will shutdown, `nova::start_sync` will return, and the program will end.
+Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, the job system will shutdown, `nova::start_sync` will return, and the program will end.
 
-\* *Note that `nova::call` will not necessarily return to the same thread it was called from.*
+\* *`nova::call` will not necessarily return to the same thread it was called from.*
 
-\*\* *`nova::bind` and `std::bind` differ in how they deal with references:*
+\*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
+
 ```C++
 void TestFunc(int& n){ n++; }
-void TestFunc2(const int& n) {};
 
 int test = 0;
 
-std::bind(TestFunc, test)(); // Compiles; TestFunc modifies a copy of test.
-nova::bind(TestFunc, test)(); // Doesn't compile; copy of test is const.
+nova::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
+std::bind(TestFunc, test)();
 
-nova::bind(TestFunc, std::ref(test))(); // Both compile; TestFunc modifies test.
+// test is still 0.
+
+nova::bind(TestFunc, std::ref(test))(); // TestFunc is passed a reference to test.
 std::bind(TestFunc, std::ref(test))();
 
-nova::bind(TestFunc2, test)(); // Both compile.
-std::bind(TestFunc2, test)();
-
+// test is now 2.
 ```
 
 ## Asynchronous usage
@@ -105,12 +105,12 @@ void JobWithParam(int number, nova::dependency_token dt) {
 }
 
 void InitialJob() {
-	nova::dependency_token dt(&nova::kill_all_workers);
-	nova::push(nova::bind(&NextJob, dt), nova::bind(&JobWithParam, 5, dt));
+	nova::dependency_token dt(nova::kill_all_workers);
+	nova::push(nova::bind(NextJob, dt), nova::bind(JobWithParam, 5, dt));
 }
 
 int main() {
-	nova::start_async(&InitialJob);
+	nova::start_async(InitialJob);
 }
 ```
 
@@ -141,11 +141,11 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::push_dependent(&NextJob, nova::bind(&JobWithParam, 5));
+	nova::push_dependent(NextJob, nova::bind(JobWithParam, 5));
 }
 
 int main() {
-	nova::start_sync(&InitialJob);
+	nova::start_sync(InitialJob);
 }
 ```
 
@@ -156,7 +156,7 @@ int main() {
 ```C++
 int main() {
 	nova::start_sync([]() {
-		nova::call(&InitialJob);
+		nova::call(InitialJob);
 	});
 }
 ```
@@ -166,14 +166,14 @@ Semi-synchronous invocations are more expensive than asynchronous invocations wh
 ## Batching
 #### [`bind_batch`](https://github.com/narrill/nova/wiki/API-reference#novabind_batch), [`parallel_for`](https://github.com/narrill/nova/wiki/API-reference#novaparallel_for) <sub>API reference</sub>
 
-`nova::bind_batch` allows you to take a **callable** object that takes a numerical range as two of its parameters and turn it into a **batch runnable**. Rather than being invoked as a single job, **batch runnables** are invoked as a set of jobs (one per thread), with each one receiving a contiguous portion of the original range.
+`nova::bind_batch` allows you to take a **callable** object that takes a numerical range as two of its parameters* and turn it into a **batch runnable**. Rather than being invoked as a single job, **batch runnables** are invoked as a set of jobs (one per thread), with each one receiving a contiguous portion of the original range.
 
 For example, if this code was run on a machine with eight logical cores
 
 ```C++
 void BatchJob(unsigned start, unsigned end){ ... }
 
-nova::push(nova::bind_batch(&BatchJob, 0, 8000));
+nova::push(nova::bind_batch(BatchJob, 0, 8000));
 ```
 
 it would be functionally equivalent to the following:
@@ -182,14 +182,14 @@ it would be functionally equivalent to the following:
 void BatchJob(unsigned start, unsigned end){ ... }
 
 nova::push(
-	nova::bind(&BatchJob, 0, 1000),
-	nova::bind(&BatchJob, 1000, 2000),
-	nova::bind(&BatchJob, 2000, 3000),
-	nova::bind(&BatchJob, 3000, 4000),
-	nova::bind(&BatchJob, 4000, 5000),
-	nova::bind(&BatchJob, 5000, 6000),
-	nova::bind(&BatchJob, 6000, 7000),
-	nova::bind(&BatchJob, 7000, 8000)
+	nova::bind(BatchJob, 0, 1000),
+	nova::bind(BatchJob, 1000, 2000),
+	nova::bind(BatchJob, 2000, 3000),
+	nova::bind(BatchJob, 3000, 4000),
+	nova::bind(BatchJob, 4000, 5000),
+	nova::bind(BatchJob, 5000, 6000),
+	nova::bind(BatchJob, 6000, 7000),
+	nova::bind(BatchJob, 7000, 8000)
 );
 ```
 
@@ -197,18 +197,18 @@ This will work with `nova::call` and `nova::push_dependent` as well, and it will
 
 ```C++
 nova::push(
-	nova::bind_batch(&BatchJob, 0, 8000),
-	nova::bind(&OtherJob)
+	nova::bind_batch(BatchJob, 0, 8000),
+	nova::bind(OtherJob)
 );
 nova::call(
-	nova::bind(&OtherJob),
-	nova::bind_batch(&BatchJob, 0, 8000),
-	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
+	nova::bind(OtherJob),
+	nova::bind_batch(BatchJob, 0, 8000),
+	nova::bind_batch(OtherBatchJob, 0, 100, Foo())
 );
 nova::push_dependent(
-	nova::bind(&OtherJob),
-	nova::bind(&BatchJob, 0, 8000),
-	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
+	nova::bind(OtherJob),
+	nova::bind(BatchJob, 0, 8000),
+	nova::bind_batch(OtherBatchJob, 0, 100, Foo())
 );
 etc.
 ```
@@ -224,6 +224,21 @@ nova::parallel_for([](unsigned index) {
 will call the lambda 1000 times, but will only create as many jobs as the system can run concurrently.
 
 However, if you can process multiple elements at once (e.g. SIMD) it may be more performant to use a batch function directly.
+
+\* *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
+
+```C++
+// Correct, uses start as the start and end as the end.
+void CorrectBatchSignature(Foo foo, int start, unsigned end, char c);
+
+// Doesn't compile (unless Foo can convert to std::size_t)
+// Uses start as the start and foo as the end.
+void IncorrectBatchSignature(int start, Foo foo, long end, char c);
+
+// Compiles, but almost certainly incorrect.
+// Uses c as the start and start as the end
+void VeryIncorrectBatchSignature(Foo foo, char c, int start, unsigned end);
+```
 
 ## Main thread invocation
 #### [`switch_to_main`](https://github.com/narrill/nova/wiki/API-reference#novaswitch_to_main) <sub>API reference</sub>
