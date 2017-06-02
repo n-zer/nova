@@ -75,8 +75,9 @@ namespace nova {
 		template <typename Callable, typename ... Params>
 		class function {
 		public:
-			function(Callable callable, Params... args)
-				: m_callable(callable), m_tuple(args...) {
+			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, function<Callable, Params...>>::value, int> = 0>
+			function(_Callable&& callable, _Params&&... args)
+				: m_callable(std::forward<_Callable>(callable)), m_tuple(std::forward<_Params>(args)...) {
 			}
 
 			void operator () () const {
@@ -89,8 +90,9 @@ namespace nova {
 			typedef batch_function<Callable, Params...> batchType;
 
 		protected:
+			typedef std::tuple<Params...> tuple_t;
 			Callable m_callable;
-			std::tuple<Params...> m_tuple;
+			tuple_t m_tuple;
 		};
 
 		template <typename Callable, typename ... Params>
@@ -100,8 +102,9 @@ namespace nova {
 			typedef std::tuple_element_t<tupleIntegralIndex::value, std::tuple<Params...>> start_index_t;
 			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, std::tuple<Params...>> end_index_t;
 
-			batch_function(Callable callable, Params... args)
-				: function<Callable, Params...>(callable, args...), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
+			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, batch_function<Callable, Params...>>::value, int> = 0>
+			batch_function(_Callable&& callable, _Params&&... args)
+				: function<Callable, Params...>(std::forward<_Callable>(callable), std::forward<_Params>(args)...), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
 			}
 
 			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
@@ -109,7 +112,7 @@ namespace nova {
 			}*/
 
 			void operator () () {
-				std::tuple<Params...> params = this->m_tuple;
+				tuple_t params = this->m_tuple;
 				std::size_t batchStart = start();
 				std::size_t batchEnd = end();
 				float count = static_cast<float>(batchEnd - batchStart);
@@ -139,19 +142,20 @@ namespace nova {
 			typedef function<Callable, Params...> simpleType;
 
 		private:
+			typedef simpleType::tuple_t tuple_t;
 			alignas(32) uint32_t m_currentSection = 0;
 			std::size_t m_sections;
 
 			start_index_t& start() {
 				return start(this->m_tuple);
 			}
-			static start_index_t& start(std::tuple<Params...> & tuple) {
+			static start_index_t& start(tuple_t & tuple) {
 				return std::get<tupleIntegralIndex::value>(tuple);
 			}
 			end_index_t& end() {
 				return end(this->m_tuple);
 			}
-			static end_index_t& end(std::tuple<Params...> & tuple) {
+			static end_index_t& end(tuple_t & tuple) {
 				return std::get<tupleIntegralIndex::value + 1>(tuple);
 			}
 		};
@@ -164,14 +168,14 @@ namespace nova {
 
 	// Returns a Runnable wrapper for the given Callable and parameters.
 	template <typename Callable, typename ... Params>
-	impl::function<Callable, Params...> bind(Callable callable, Params... args) {
-		return impl::function<Callable, Params...>(callable, args...);
+	auto bind(Callable&& callable, Params&&... args) {
+		return impl::function<std::decay_t<Callable>, std::decay_t<Params>...>(std::forward<Callable>(callable), std::forward<Params>(args)...);
 	}
 
 	// Returns a Batch Runnable wrapper for the given Callable and parameters. The Callable must have two sequential integral parameters; these are, respectively, the start and end of the range over which the batch will be split.
 	template <typename Callable, typename ... Params>
-	impl::batch_function<Callable, Params...> bind_batch(Callable callable, Params... args) {
-		return impl::batch_function<Callable, Params...>(callable, args...);
+	auto bind_batch(Callable&& callable, Params&&... args) {
+		return impl::batch_function<std::decay_t<Callable>, std::decay_t<Params>...>(std::forward<Callable>(callable), std::forward<Params>(args)...);
 	}
 
 #pragma endregion
