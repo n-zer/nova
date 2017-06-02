@@ -241,6 +241,8 @@ nova::switch_to_main();
 ... // Now we're on the main thread.
 ```
 
+---
+
 #### *Footnotes*
 
 <a id="user-content-note-call"></a><sup>1</sup> *`nova::call` will not necessarily return to the same thread it was called from.*
