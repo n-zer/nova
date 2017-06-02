@@ -62,15 +62,15 @@ int main() {
 }
 ```
 
-After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns[\*](#invisible-anchor) when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters\*\*.
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns[\*](#note-call) when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters[\*\*](#note-bind).
 
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, the job system will shutdown, `nova::start_sync` will return, and the program will end.
 
 <br />
 
-<a id="user-content-invisible-anchor"></a>\* *`nova::call` will not necessarily return to the same thread it was called from.*
+<a id="user-content-note-call"></a>\* *`nova::call` will not necessarily return to the same thread it was called from.*
 
-\*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
+<a id="user-content-note-bind"></a>\*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
 
 ```C++
 void TestFunc(int& n){ n++; }
@@ -168,7 +168,7 @@ Semi-synchronous invocations are more expensive than asynchronous invocations wh
 ## Batching
 #### [`bind_batch`](https://github.com/narrill/nova/wiki/API-reference#novabind_batch), [`parallel_for`](https://github.com/narrill/nova/wiki/API-reference#novaparallel_for) <sub>API reference</sub>
 
-`nova::bind_batch` allows you to take a **callable** object that takes a numerical range as two of its parameters* and turn it into a **batch runnable**. Rather than being invoked as a single job, **batch runnables** are invoked as a set of jobs (one per thread), with each one receiving a contiguous portion of the original range.
+`nova::bind_batch` allows you to take a **callable** object that takes a numerical range as two of its parameters[\*](#note-batch-parameters) and turn it into a **batch runnable**. Rather than being invoked as a single job, **batch runnables** are invoked as a set of jobs (one per thread), with each one receiving a contiguous portion of the original range.
 
 For example, if this code was run on a machine with eight logical cores
 
@@ -229,7 +229,7 @@ However, if you can process multiple elements at once (e.g. SIMD) it may be more
 
 <br />
 
-\* *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
+<a id="user-content-note-batch-parameters"></a>\* *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
 
 ```C++
 // Correct, uses start as the start and end as the end.
