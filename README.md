@@ -40,7 +40,7 @@ void NextJob() {
 }
 
 void JobWithParam(int number) {
-	std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
+	std::cout << "Hello from JobWithParam, with param: " << std::to_string(number) << std::endl;
 }
 
 void InitialJob() {
@@ -101,7 +101,7 @@ void NextJob(nova::dependency_token dt) {
 }
 
 void JobWithParam(int number, nova::dependency_token dt) {
-	std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
+	std::cout << "Hello from JobWithParam, with param: " << std::to_string(number) << std::endl;
 }
 
 void InitialJob() {
@@ -137,7 +137,7 @@ void NextJob() {
 }
 
 void JobWithParam(int number) {
-	std::cout << "Hello from NextJob, with param: " << std::to_string(number) << std::endl;
+	std::cout << "Hello from JobWithParam, with param: " << std::to_string(number) << std::endl;
 }
 
 void InitialJob() {
