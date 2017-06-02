@@ -19,6 +19,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 	* [`parallel_for`](#batching)
 * [Main thread invocation](#main-thread-invocation)
 	* [`switch_to_main`](#main-thread-invocation)
+* [API reference](https://github.com/narrill/nova/wiki/API-reference)
 
 ## Getting started
 
