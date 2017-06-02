@@ -35,7 +35,7 @@ namespace nova {
 		namespace detail {
 			template <class F, class Tuple, std::size_t... I>
 			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
-				return invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+				return impl::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
 			}
 		}  // namespace detail
 
@@ -98,9 +98,9 @@ namespace nova {
 		template <typename Callable, typename ... Params>
 		class batch_function : public function<Callable, Params...> {
 		public:
-			typedef impl::integral_index<std::tuple<Params...>> tupleIntegralIndex;
-			typedef std::tuple_element_t<tupleIntegralIndex::value, std::tuple<Params...>> start_index_t;
-			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, std::tuple<Params...>> end_index_t;
+			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
+			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
+			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
 
 			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, batch_function<Callable, Params...>>::value, int> = 0>
 			batch_function(_Callable&& callable, _Params&&... args)
