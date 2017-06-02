@@ -62,13 +62,13 @@ int main() {
 }
 ```
 
-After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns\* when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters\*\*.
+After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns[\*](#invisible-anchor) when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters\*\*.
 
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, the job system will shutdown, `nova::start_sync` will return, and the program will end.
 
 <br />
 
-\* *`nova::call` will not necessarily return to the same thread it was called from.*
+<a href="#invisible-anchor"></a>\* *`nova::call` will not necessarily return to the same thread it was called from.*
 
 \*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
 
