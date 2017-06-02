@@ -277,6 +277,15 @@ namespace nova {
 				) {
 			}
 
+			job(void(*func)())
+				: m_data(
+					&job::run_runnable<void()>,
+					&job::no_op,
+					func
+				) {
+
+			}
+
 			job(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
 				: m_data( runFunc, deleteFunc, runnable ) {
 			}
@@ -302,12 +311,12 @@ namespace nova {
 
 			template <typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
 			static void run_runnable(void * runnable) {
-				(static_cast<Runnable*>(runnable))->operator()();
+				(*(static_cast<Runnable*>(runnable)))();
 			}
 
 			template <typename Runnable, std::enable_if_t<is_shared<Runnable>::value, int> = 0>
 			static void run_runnable(void * runnable) {
-				static_cast<Runnable*>(runnable)->get()->operator()();
+				(*(static_cast<Runnable*>(runnable)->get()))();
 			}
 
 			template <typename Runnable>
