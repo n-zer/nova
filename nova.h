@@ -123,10 +123,6 @@ namespace nova {
 		template <typename Callable, typename ... Params>
 		class batch_function : public function<Callable, Params...> {
 		public:
-			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
-			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
-			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
-
 			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, batch_function<Callable, Params...>>::value, int> = 0>
 			batch_function(_Callable&& callable, _Params&&... args)
 				: function<Callable, Params...>(std::forward<_Callable>(callable), std::forward<_Params>(args)...), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
@@ -167,7 +163,10 @@ namespace nova {
 			typedef function<Callable, Params...> simpleType;
 
 		private:
-			typedef simpleType::tuple_t tuple_t;
+			typedef typename simpleType::tuple_t tuple_t;
+			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
+			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
+			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
 			alignas(32) uint32_t m_currentSection = 0;
 			std::size_t m_sections;
 
@@ -409,7 +408,7 @@ namespace nova {
 		impl::job m_job;
 	};
 
-	template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int> = 0>
+	template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int>>
 	dependency_token::dependency_token(Runnable&& runnable)
 		: m_token(std::make_shared<shared_token>(std::forward<std::decay_t<Runnable>>(runnable))) {
 	}
