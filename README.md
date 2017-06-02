@@ -68,7 +68,7 @@ Once `NextJob` and `JobWithParam` return `nova::call` will return, then `Initial
 
 <br />
 
-<a href="#invisible-anchor"></a>\* *`nova::call` will not necessarily return to the same thread it was called from.*
+<a id="user-content-invisible-anchor" href="#invisible-anchor" class="anchor"></a>\* *`nova::call` will not necessarily return to the same thread it was called from.*
 
 \*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
 
