@@ -44,11 +44,11 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::call(&NextJob, nova::bind(&JobWithParam, 5));
+	nova::call(NextJob, nova::bind(JobWithParam, 5));
 }
 
 int main() {
-	nova::start_sync(&InitialJob);
+	nova::start_sync(InitialJob);
 }
 ```
 
@@ -58,7 +58,7 @@ We start with a call to `nova::start_sync`, which initializes the job system, en
 void InitialJob(int number, Foo foo) { ... }
 
 int main() {
-	nova::start_sync(&InitialJob, 5, Foo());
+	nova::start_sync(InitialJob, 5, Foo());
 }
 ```
 
@@ -105,12 +105,12 @@ void JobWithParam(int number, nova::dependency_token dt) {
 }
 
 void InitialJob() {
-	nova::dependency_token dt(&nova::kill_all_workers);
-	nova::push(nova::bind(&NextJob, dt), nova::bind(&JobWithParam, 5, dt));
+	nova::dependency_token dt(nova::kill_all_workers);
+	nova::push(nova::bind(NextJob, dt), nova::bind(JobWithParam, 5, dt));
 }
 
 int main() {
-	nova::start_async(&InitialJob);
+	nova::start_async(InitialJob);
 }
 ```
 
@@ -141,11 +141,11 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::push_dependent(&NextJob, nova::bind(&JobWithParam, 5));
+	nova::push_dependent(NextJob, nova::bind(JobWithParam, 5));
 }
 
 int main() {
-	nova::start_sync(&InitialJob);
+	nova::start_sync(InitialJob);
 }
 ```
 
@@ -156,7 +156,7 @@ int main() {
 ```C++
 int main() {
 	nova::start_sync([]() {
-		nova::call(&InitialJob);
+		nova::call(InitialJob);
 	});
 }
 ```
@@ -173,7 +173,7 @@ For example, if this code was run on a machine with eight logical cores
 ```C++
 void BatchJob(unsigned start, unsigned end){ ... }
 
-nova::push(nova::bind_batch(&BatchJob, 0, 8000));
+nova::push(nova::bind_batch(BatchJob, 0, 8000));
 ```
 
 it would be functionally equivalent to the following:
@@ -182,14 +182,14 @@ it would be functionally equivalent to the following:
 void BatchJob(unsigned start, unsigned end){ ... }
 
 nova::push(
-	nova::bind(&BatchJob, 0, 1000),
-	nova::bind(&BatchJob, 1000, 2000),
-	nova::bind(&BatchJob, 2000, 3000),
-	nova::bind(&BatchJob, 3000, 4000),
-	nova::bind(&BatchJob, 4000, 5000),
-	nova::bind(&BatchJob, 5000, 6000),
-	nova::bind(&BatchJob, 6000, 7000),
-	nova::bind(&BatchJob, 7000, 8000)
+	nova::bind(BatchJob, 0, 1000),
+	nova::bind(BatchJob, 1000, 2000),
+	nova::bind(BatchJob, 2000, 3000),
+	nova::bind(BatchJob, 3000, 4000),
+	nova::bind(BatchJob, 4000, 5000),
+	nova::bind(BatchJob, 5000, 6000),
+	nova::bind(BatchJob, 6000, 7000),
+	nova::bind(BatchJob, 7000, 8000)
 );
 ```
 
@@ -197,18 +197,18 @@ This will work with `nova::call` and `nova::push_dependent` as well, and it will
 
 ```C++
 nova::push(
-	nova::bind_batch(&BatchJob, 0, 8000),
-	nova::bind(&OtherJob)
+	nova::bind_batch(BatchJob, 0, 8000),
+	nova::bind(OtherJob)
 );
 nova::call(
-	nova::bind(&OtherJob),
-	nova::bind_batch(&BatchJob, 0, 8000),
-	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
+	nova::bind(OtherJob),
+	nova::bind_batch(BatchJob, 0, 8000),
+	nova::bind_batch(OtherBatchJob, 0, 100, Foo())
 );
 nova::push_dependent(
-	nova::bind(&OtherJob),
-	nova::bind(&BatchJob, 0, 8000),
-	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
+	nova::bind(OtherJob),
+	nova::bind(BatchJob, 0, 8000),
+	nova::bind_batch(OtherBatchJob, 0, 100, Foo())
 );
 etc.
 ```
