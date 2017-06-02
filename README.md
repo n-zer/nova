@@ -245,8 +245,6 @@ nova::switch_to_main();
 
 <a id="user-content-note-call"></a><sup>1</sup> *`nova::call` will not necessarily return to the same thread it was called from.*
 
-<br />
-
 <a id="user-content-note-bind"></a><sup>2</sup> *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
 
 ```C++
@@ -264,8 +262,6 @@ std::bind(TestFunc, std::ref(test))();
 
 // test is now 2.
 ```
-
-<br />
 
 <a id="user-content-note-batch-parameters"></a><sup>3</sup> *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
 
