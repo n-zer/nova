@@ -7,202 +7,13 @@
 #include <tuple>
 #include <Windows.h>
 #include <memory>
+#include <cmath>
 
 #include "queue_adaptors.h"
 
 #define NOVA_CACHE_LINE_BYTES 64
 
 namespace nova {
-
-#pragma region function & batch_function
-
-	namespace impl{
-
-#pragma region helpers
-
-		namespace detail {
-			template <class F, class... Args>
-			inline auto INVOKE(F&& f, Args&&... args) ->
-				decltype(std::forward<F>(f)(std::forward<Args>(args)...)) {
-				return std::forward<F>(f)(std::forward<Args>(args)...);
-			}
-
-			template <class Base, class T, class Derived>
-			inline auto INVOKE(T Base::*pmd, Derived&& ref) ->
-				decltype(std::forward<Derived>(ref).*pmd) {
-				return std::forward<Derived>(ref).*pmd;
-			}
-
-			template <class PMD, class Pointer>
-			inline auto INVOKE(PMD pmd, Pointer&& ptr) ->
-				decltype((*std::forward<Pointer>(ptr)).*pmd) {
-				return (*std::forward<Pointer>(ptr)).*pmd;
-			}
-
-			template <class Base, class T, class Derived, class... Args>
-			inline auto INVOKE(T Base::*pmf, Derived&& ref, Args&&... args) ->
-				decltype((std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...)) {
-				return (std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...);
-			}
-
-			template <class PMF, class Pointer, class... Args>
-			inline auto INVOKE(PMF pmf, Pointer&& ptr, Args&&... args) ->
-				decltype(((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...)) {
-				return ((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...);
-			}
-		} // namespace detail
-
-		template< class F, class... ArgTypes>
-		decltype(auto) invoke(F&& f, ArgTypes&&... args) {
-			return detail::INVOKE(std::forward<F>(f), std::forward<ArgTypes>(args)...);
-		}
-
-		namespace detail {
-			template <class F, class Tuple, std::size_t... I>
-			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
-				return impl::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
-			}
-		}  // namespace detail
-
-		template <class F, class Tuple>
-		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
-			return detail::apply_impl(
-				std::forward<F>(f), std::forward<Tuple>(t),
-				std::make_index_sequence<std::tuple_size<std::decay_t<Tuple>>::value>{});
-		}
-
-		template<class Tuple>
-		struct integral_index;
-
-		template<bool Val, class Tuple>
-		struct integral_index_inner;
-
-		template<class T, class ... Types>
-		struct integral_index<std::tuple<T, Types...>> {
-			static const std::size_t value = integral_index_inner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
-		};
-
-		template<typename Tuple>
-		struct integral_index_inner<true, Tuple> {
-			static const std::size_t value = 0;
-		};
-
-		template<typename T, typename ... Types>
-		struct integral_index_inner<false, std::tuple<T, Types...>> {
-			static const std::size_t value = 1 + integral_index<std::tuple<Types...>>::value;
-		};
-
-#pragma endregion
-
-		template<typename Callable, typename ... Params>
-		class batch_function;
-
-		template <typename Callable, typename ... Params>
-		class function {
-		public:
-			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, function<Callable, Params...>>::value, int> = 0>
-			function(_Callable&& callable, _Params&&... args)
-				: m_callable(std::forward<_Callable>(callable)), m_tuple(std::forward<_Params>(args)...) {
-			}
-
-			void operator () () {
-				impl::apply(m_callable, m_tuple);
-			}
-
-			//Ignore the squiggly, this is defined further down
-			//operator BatchJob<Callable, Params...>() const;
-
-			typedef batch_function<Callable, Params...> batchType;
-
-		protected:
-			typedef std::tuple<Params...> tuple_t;
-			Callable m_callable;
-			tuple_t m_tuple;
-		};
-
-		template <typename Callable, typename ... Params>
-		class batch_function : public function<Callable, Params...> {
-		public:
-			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, batch_function<Callable, Params...>>::value, int> = 0>
-			batch_function(_Callable&& callable, _Params&&... args)
-				: function<Callable, Params...>(std::forward<_Callable>(callable), std::forward<_Params>(args)...), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
-			}
-
-			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
-			: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), static_cast<indexType>(internal::WorkerThread::GetThreadCount()))) {
-			}*/
-
-			void operator () () {
-				tuple_t params = this->m_tuple;
-				std::size_t batchStart = start();
-				std::size_t batchEnd = end();
-				float count = static_cast<float>(batchEnd - batchStart);
-				std::size_t section = static_cast<start_index_t>(InterlockedIncrement(&m_currentSection));
-				std::size_t newStart = static_cast<start_index_t>(batchStart + floorf(static_cast<float>(count*(section - 1) / m_sections)));
-				batchEnd = static_cast<std::size_t>(batchStart + floorf(count*section / m_sections));
-
-				start(params) = static_cast<start_index_t>(newStart);
-				end(params) = static_cast<end_index_t>(batchEnd);
-				impl::apply(this->m_callable, params);
-			}
-
-			std::size_t get_sections() const {
-				return m_sections;
-			}
-
-			void* operator new(size_t i)
-			{
-				return _mm_malloc(i, 32);
-			}
-
-			void operator delete(void* p)
-			{
-				_mm_free(p);
-			}
-
-			typedef function<Callable, Params...> simpleType;
-
-		private:
-			typedef typename simpleType::tuple_t tuple_t;
-			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
-			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
-			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
-			alignas(32) uint32_t m_currentSection = 0;
-			std::size_t m_sections;
-
-			start_index_t& start() {
-				return start(this->m_tuple);
-			}
-			static start_index_t& start(tuple_t & tuple) {
-				return std::get<tupleIntegralIndex::value>(tuple);
-			}
-			end_index_t& end() {
-				return end(this->m_tuple);
-			}
-			static end_index_t& end(tuple_t & tuple) {
-				return std::get<tupleIntegralIndex::value + 1>(tuple);
-			}
-		};
-
-		/*template<typename Callable, typename ...Params>
-		inline SimpleJob<Callable, Params...>::operator BatchJob<Callable, Params...>() const {
-		return BatchJob<Callable, Params...>(*this);
-		}*/
-	}
-
-	// Returns a Runnable wrapper for the given Callable and parameters.
-	template <typename Callable, typename ... Params>
-	auto bind(Callable&& callable, Params&&... args) {
-		return impl::function<std::decay_t<Callable>, std::decay_t<Params>...>(std::forward<Callable>(callable), std::forward<Params>(args)...);
-	}
-
-	// Returns a Batch Runnable wrapper for the given Callable and parameters. The Callable must have two sequential integral parameters; these are, respectively, the start and end of the range over which the batch will be split.
-	template <typename Callable, typename ... Params>
-	auto bind_batch(Callable&& callable, Params&&... args) {
-		return impl::batch_function<std::decay_t<Callable>, std::decay_t<Params>...>(std::forward<Callable>(callable), std::forward<Params>(args)...);
-	}
-
-#pragma endregion
 
 #pragma region job & dependency_token
 
@@ -633,6 +444,196 @@ namespace nova {
 
 			std::thread m_thread;
 		};
+	}
+
+#pragma endregion
+
+#pragma region function & batch_function
+
+	namespace impl {
+
+#pragma region helpers
+
+		namespace detail {
+			template <class F, class... Args>
+			inline auto INVOKE(F&& f, Args&&... args) ->
+				decltype(std::forward<F>(f)(std::forward<Args>(args)...)) {
+				return std::forward<F>(f)(std::forward<Args>(args)...);
+			}
+
+			template <class Base, class T, class Derived>
+			inline auto INVOKE(T Base::*pmd, Derived&& ref) ->
+				decltype(std::forward<Derived>(ref).*pmd) {
+				return std::forward<Derived>(ref).*pmd;
+			}
+
+			template <class PMD, class Pointer>
+			inline auto INVOKE(PMD pmd, Pointer&& ptr) ->
+				decltype((*std::forward<Pointer>(ptr)).*pmd) {
+				return (*std::forward<Pointer>(ptr)).*pmd;
+			}
+
+			template <class Base, class T, class Derived, class... Args>
+			inline auto INVOKE(T Base::*pmf, Derived&& ref, Args&&... args) ->
+				decltype((std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...)) {
+				return (std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...);
+			}
+
+			template <class PMF, class Pointer, class... Args>
+			inline auto INVOKE(PMF pmf, Pointer&& ptr, Args&&... args) ->
+				decltype(((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...)) {
+				return ((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...);
+			}
+		} // namespace detail
+
+		template< class F, class... ArgTypes>
+		decltype(auto) invoke(F&& f, ArgTypes&&... args) {
+			return detail::INVOKE(std::forward<F>(f), std::forward<ArgTypes>(args)...);
+		}
+
+		namespace detail {
+			template <class F, class Tuple, std::size_t... I>
+			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
+				return impl::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+			}
+		}  // namespace detail
+
+		template <class F, class Tuple>
+		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
+			return detail::apply_impl(
+				std::forward<F>(f), std::forward<Tuple>(t),
+				std::make_index_sequence<std::tuple_size<std::decay_t<Tuple>>::value>{});
+		}
+
+		template<class Tuple>
+		struct integral_index;
+
+		template<bool Val, class Tuple>
+		struct integral_index_inner;
+
+		template<class T, class ... Types>
+		struct integral_index<std::tuple<T, Types...>> {
+			static const std::size_t value = integral_index_inner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
+		};
+
+		template<typename Tuple>
+		struct integral_index_inner<true, Tuple> {
+			static const std::size_t value = 0;
+		};
+
+		template<typename T, typename ... Types>
+		struct integral_index_inner<false, std::tuple<T, Types...>> {
+			static const std::size_t value = 1 + integral_index<std::tuple<Types...>>::value;
+		};
+
+#pragma endregion
+
+		template<typename Callable, typename ... Params>
+		class batch_function;
+
+		template <typename Callable, typename ... Params>
+		class function {
+		public:
+			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, function<Callable, Params...>>::value, int> = 0>
+			function(_Callable&& callable, _Params&&... args)
+				: m_callable(std::forward<_Callable>(callable)), m_tuple(std::forward<_Params>(args)...) {
+			}
+
+			void operator () () {
+				impl::apply(m_callable, m_tuple);
+			}
+
+			//Ignore the squiggly, this is defined further down
+			//operator BatchJob<Callable, Params...>() const;
+
+			typedef batch_function<Callable, Params...> batchType;
+
+		protected:
+			typedef std::tuple<Params...> tuple_t;
+			Callable m_callable;
+			tuple_t m_tuple;
+		};
+
+		template <typename Callable, typename ... Params>
+		class batch_function : public function<Callable, Params...> {
+		public:
+			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, batch_function<Callable, Params...>>::value, int> = 0>
+			batch_function(_Callable&& callable, _Params&&... args)
+				: function<Callable, Params...>(std::forward<_Callable>(callable), std::forward<_Params>(args)...), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
+			}
+
+			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
+			: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), static_cast<indexType>(internal::WorkerThread::GetThreadCount()))) {
+			}*/
+
+			void operator () () {
+				tuple_t params = this->m_tuple;
+				std::size_t batchStart = start();
+				std::size_t batchEnd = end();
+				float count = static_cast<float>(batchEnd - batchStart);
+				std::size_t section = static_cast<start_index_t>(InterlockedIncrement(&m_currentSection));
+				std::size_t newStart = static_cast<start_index_t>(batchStart + std::floor(static_cast<float>(count*(section - 1) / m_sections)));
+				batchEnd = static_cast<std::size_t>(batchStart + std::floor(count*section / m_sections));
+
+				start(params) = static_cast<start_index_t>(newStart);
+				end(params) = static_cast<end_index_t>(batchEnd);
+				impl::apply(this->m_callable, params);
+			}
+
+			std::size_t get_sections() const {
+				return m_sections;
+			}
+
+			void* operator new(size_t i)
+			{
+				return _mm_malloc(i, 32);
+			}
+
+			void operator delete(void* p)
+			{
+				_mm_free(p);
+			}
+
+			typedef function<Callable, Params...> simpleType;
+
+		private:
+			typedef typename simpleType::tuple_t tuple_t;
+			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
+			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
+			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
+			alignas(32) uint32_t m_currentSection = 0;
+			std::size_t m_sections;
+
+			start_index_t& start() {
+				return start(this->m_tuple);
+			}
+			static start_index_t& start(tuple_t & tuple) {
+				return std::get<tupleIntegralIndex::value>(tuple);
+			}
+			end_index_t& end() {
+				return end(this->m_tuple);
+			}
+			static end_index_t& end(tuple_t & tuple) {
+				return std::get<tupleIntegralIndex::value + 1>(tuple);
+			}
+		};
+
+		/*template<typename Callable, typename ...Params>
+		inline SimpleJob<Callable, Params...>::operator BatchJob<Callable, Params...>() const {
+		return BatchJob<Callable, Params...>(*this);
+		}*/
+	}
+
+	// Returns a Runnable wrapper for the given Callable and parameters.
+	template <typename Callable, typename ... Params>
+	auto bind(Callable&& callable, Params&&... args) {
+		return impl::function<std::decay_t<Callable>, std::decay_t<Params>...>(std::forward<Callable>(callable), std::forward<Params>(args)...);
+	}
+
+	// Returns a Batch Runnable wrapper for the given Callable and parameters. The Callable must have two sequential integral parameters; these are, respectively, the start and end of the range over which the batch will be split.
+	template <typename Callable, typename ... Params>
+	auto bind_batch(Callable&& callable, Params&&... args) {
+		return impl::batch_function<std::decay_t<Callable>, std::decay_t<Params>...>(std::forward<Callable>(callable), std::forward<Params>(args)...);
 	}
 
 #pragma endregion
