@@ -5,27 +5,27 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 ## Table of contents
 * [Getting started](#getting-started)
 * [Synchronous usage](#synchronous-usage)
-	* [`nova::start_sync`](#synchronous-usage)
-	* [`nova::call`](#synchronous-usage)
-	* [`nova::bind`](#synchronous-usage)
+	* [`start_sync`](#synchronous-usage)
+	* [`call`](#synchronous-usage)
+	* [`bind`](#synchronous-usage)
 * [Asynchronous usage](#asynchronous-usage)
-	* [`nova::start_async`](#asynchronous-usage)
-	* [`nova::push`](#asynchronous-usage)
-	* [`nova::dependency_token`](#asynchronous-usage)
+	* [`start_async`](#asynchronous-usage)
+	* [`push`](#asynchronous-usage)
+	* [`dependency_token`](#asynchronous-usage)
 * [Semi-synchronous usage](#semi-synchronous-usage)
-	* [`nova::push_dependent`](#semi-synchronous-usage)
+	* [`push_dependent`](#semi-synchronous-usage)
 * [Batching](#batching)
-	* [`nova::bind_batch`](#batching)
-	* [`nova::parallel_for`](#batching)
+	* [`bind_batch`](#batching)
+	* [`parallel_for`](#batching)
 * [Main thread invocation](#main-thread-invocation)
-	* [`nova::switch_to_main`](#main-thread-invocation)
+	* [`switch_to_main`](#main-thread-invocation)
 
 ## Getting started
 
 Using the system is easy: download the headers, `#include nova.h`, and use all the stuff in the `nova` namespace.
 
 ## Synchronous usage
-#### [`nova::start_sync`](https://github.com/narrill/nova/wiki/API-reference-documentation), [`nova::call`](https://github.com/narrill/nova/wiki/API-reference-documentation), [`nova::bind`](https://github.com/narrill/nova/wiki/API-reference-documentation)
+#### [`start_sync`](https://github.com/narrill/nova/wiki/API-reference-documentation#start-sync), [`call`](https://github.com/narrill/nova/wiki/API-reference-documentation#call), [`bind`](https://github.com/narrill/nova/wiki/API-reference-documentation#bind)
 
 Here's a sample program to get you started. It starts the job system, runs `NextJob` and `JobWithParam` in parallel, then exits.
 
