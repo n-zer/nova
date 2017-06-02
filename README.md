@@ -74,8 +74,8 @@ void TestFunc(int& n){ n++; }
 
 int test = 0;
 
-std::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
-nova::bind(TestFunc, test)();
+nova::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
+std::bind(TestFunc, test)();
 
 // test is still 0.
 
