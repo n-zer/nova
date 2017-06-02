@@ -66,6 +66,8 @@ After entering `InitialJob` we reach the call to `nova::call`, which takes one o
 
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, the job system will shutdown, `nova::start_sync` will return, and the program will end.
 
+<br />
+
 \* *`nova::call` will not necessarily return to the same thread it was called from.*
 
 \*\* *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
@@ -224,6 +226,8 @@ nova::parallel_for([](unsigned index) {
 will call the lambda 1000 times, but will only create as many jobs as the system can run concurrently.
 
 However, if you can process multiple elements at once (e.g. SIMD) it may be more performant to use a batch function directly.
+
+<br />
 
 \* *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
 
