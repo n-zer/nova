@@ -162,13 +162,13 @@ namespace nova {
 		}*/
 	}
 
-	//Creates a job from a Callable object and parameters
+	// Returns a Runnable wrapper for the given Callable and parameters.
 	template <typename Callable, typename ... Params>
 	impl::function<Callable, Params...> bind(Callable callable, Params... args) {
 		return impl::function<Callable, Params...>(callable, args...);
 	}
 
-	//Creates a batch job from a Callable object and parameters (starting with a pair of BatchIndexes)
+	// Returns a Batch Runnable wrapper for the given Callable and parameters. The Callable must have two sequential integral parameters; these are, respectively, the start and end of the range over which the batch will be split.
 	template <typename Callable, typename ... Params>
 	impl::batch_function<Callable, Params...> bind_batch(Callable callable, Params... args) {
 		return impl::batch_function<Callable, Params...>(callable, args...);
@@ -197,17 +197,27 @@ namespace nova {
 
 	namespace impl{ class job; }
 
+	// Takes a Runnable and invokes it when all copies of the token are released or destroyed.
 	class dependency_token {
 	public:
 		dependency_token() {}
+
 		dependency_token(impl::job & e);
+
 		dependency_token(impl::job && e);
+
 		dependency_token(const dependency_token &) = default;
+
 		dependency_token& operator=(const dependency_token&) = default;
+
 		dependency_token(dependency_token &&) = default;
+
 		dependency_token& operator=(dependency_token&&) = default;
+
 		template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int> = 0>
 		dependency_token(Runnable&& runnable);
+
+		// Releases the token.
 		void Open() {
 			m_token.reset();
 		}
@@ -836,19 +846,23 @@ namespace nova {
 
 #pragma endregion
 
-	//Queues a set of Runnables
+	// Asynchronously invokes a set of Runnable objects.
+	// If ToMain is true, the Runnables will be invoked on the main thread.
 	template<bool ToMain = false, typename ... Runnables>
 	void push(Runnables&&... runnables) {
 		impl::push<ToMain, false>(std::forward<Runnables>(runnables)...);
 	}
 
-	//Queues a set of Runnables
+	// Asynchronously invokes a set of Runnable objects. If the current job was invoked synchronously, it will not return until these Runnables return.
+	// If ToMain is true, the Runnables will be invoked on the main thread.
 	template<bool ToMain = false, typename ... Runnables>
 	void push_dependent(Runnables&&... runnables) {
 		impl::push<ToMain, true>(std::forward<Runnables>(runnables)...);
 	}
 
-	//Loads a set of Runnables, queues them, then pauses the current call stack until they finish
+	// Synchronously invokes a set of Runnable objects.
+	// If ToMain is true, the Runnables will be invoked on the main thread.
+	// If FromMain is true, this function will return on the main thread.
 	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
 	void call(Runnables&&... runnables) {
 		using namespace impl;
@@ -858,26 +872,27 @@ namespace nova {
 		impl::call<ToMain, FromMain>(std::move(jobs), std::move(batchJobs));
 	}
 
+	// Moves the current call stack to the main thread, then returns.
 	inline void switch_to_main() {
 		impl::call<false, true>();
 	}
 
-	//Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation
+	// Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation.
 	template<typename Callable, typename ... Params>
-	void parallel_for(Callable callable, unsigned start, unsigned end, Params... args) {
+	void parallel_for(unsigned start, unsigned end, Callable callable, Params... args) {
 		call(bind_batch([&](unsigned start, unsigned end, Params... args) {
 			for (BatchIndex c = start; c < end; c++)
 				callable(c, args...);
 		}, start, end, args...));
 	}
 
-	//Starts the job system. Pass in a callable object and some parameters.
+	// Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
 	template <typename Callable, typename ... Params>
 	void start_async(Callable callable, Params ... args) {
 		start_async(std::thread::hardware_concurrency(), callable, args...);
 	}
 
-	//Starts the job system. Pass in a callable object and some parameters.
+	// Starts the job system with the given number of threads and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
 	template <typename Callable, typename ... Params>
 	void start_async(unsigned threadCount, Callable callable, Params ... args) {
 		using namespace impl;
@@ -897,13 +912,13 @@ namespace nova {
 			wt.Join();
 	}
 
-	//Starts the job system. Pass in a callable object and some parameters.
+	//Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when the Callable returns.
 	template <typename Callable, typename ... Params>
 	void start_sync(Callable callable, Params ... args) {
 		start_sync(std::thread::hardware_concurrency(), callable, args...);
 	}
 
-	//Starts the job system. Pass in a callable object and some parameters.
+	//Starts the job system with the given number of threads and enters the given Callable with the given parameters. Returns when the Callable returns.
 	template <typename Callable, typename ... Params>
 	void start_sync(unsigned threadCount, Callable callable, Params ... args) {
 		using namespace impl;
@@ -923,7 +938,7 @@ namespace nova {
 			wt.Join();
 	}
 
-
+	// Stops the job system, triggering a return from the start function. No invocations attempted after this one will occur.
 	inline void kill_all_workers() {
 		using namespace impl;
 		for (unsigned c = 0; c < worker_thread::get_thread_count(); c++)
