@@ -80,7 +80,7 @@ namespace nova {
 				: m_callable(std::forward<_Callable>(callable)), m_tuple(std::forward<_Params>(args)...) {
 			}
 
-			void operator () () const {
+			void operator () () {
 				impl::apply(m_callable, m_tuple);
 			}
 
