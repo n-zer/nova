@@ -19,6 +19,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 	* [`parallel_for`](#batching)
 * [Main thread invocation](#main-thread-invocation)
 	* [`switch_to_main`](#main-thread-invocation)
+* [Footnotes](#footnotes)
 * [API reference](https://github.com/narrill/nova/wiki/API-reference)
 
 ## Getting started
@@ -65,28 +66,6 @@ int main() {
 After entering `InitialJob` we reach the call to `nova::call`, which takes one or more **runnable** objects (**callable** objects that can be called with no parameters), runs them in parallel, and returns[<sup>1</sup>](#note-call) when they've all finished. You can use `nova::bind` (or`std::bind`) to get a **runnable** wrapper for a **callable** object and its parameters[<sup>2</sup>](#note-bind).
 
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, the job system will shutdown, `nova::start_sync` will return, and the program will end.
-
-<br />
-
-<a id="user-content-note-call"></a><sup>1</sup> *`nova::call` will not necessarily return to the same thread it was called from.*
-
-<a id="user-content-note-bind"></a><sup>2</sup> *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
-
-```C++
-void TestFunc(int& n){ n++; }
-
-int test = 0;
-
-nova::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
-std::bind(TestFunc, test)();
-
-// test is still 0.
-
-nova::bind(TestFunc, std::ref(test))(); // TestFunc is passed a reference to test.
-std::bind(TestFunc, std::ref(test))();
-
-// test is now 2.
-```
 
 ## Asynchronous usage
 #### [`start_async`](https://github.com/narrill/nova/wiki/API-reference#novastart_async), [`push`](https://github.com/narrill/nova/wiki/API-reference#novapush), [`dependency_token`](https://github.com/narrill/nova/wiki/API-reference#novadependency_token) <sub>API reference</sub>
@@ -227,23 +206,6 @@ will call the lambda 1000 times, but will only create as many jobs as the system
 
 However, if you can process multiple elements at once (e.g. SIMD) it may be more performant to use a batch function directly.
 
-<br />
-
-<a id="user-content-note-batch-parameters"></a><sup>3</sup> *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
-
-```C++
-// Correct, uses start as the start and end as the end.
-void CorrectBatchSignature(Foo foo, int start, unsigned end, char c);
-
-// Doesn't compile (unless Foo can convert to std::size_t)
-// Uses start as the start and foo as the end.
-void IncorrectBatchSignature(int start, Foo foo, long end, char c);
-
-// Compiles, but almost certainly incorrect.
-// Uses c as the start and start as the end
-void VeryIncorrectBatchSignature(Foo foo, char c, int start, unsigned end);
-```
-
 ## Main thread invocation
 #### [`switch_to_main`](https://github.com/narrill/nova/wiki/API-reference#novaswitch_to_main) <sub>API reference</sub>
 
@@ -277,4 +239,45 @@ nova::call<false, false>(...);
 nova::switch_to_main();
 
 ... // Now we're on the main thread.
+```
+
+#### *Footnotes*
+
+<a id="user-content-note-call"></a><sup>1</sup> *`nova::call` will not necessarily return to the same thread it was called from.*
+
+<br />
+
+<a id="user-content-note-bind"></a><sup>2</sup> *By default, both `nova::bind` and `std::bind` will pass references to copies to a **callable** that expects references. If you want a true reference you need to use `std::ref` or `std::cref`:*
+
+```C++
+void TestFunc(int& n){ n++; }
+
+int test = 0;
+
+nova::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
+std::bind(TestFunc, test)();
+
+// test is still 0.
+
+nova::bind(TestFunc, std::ref(test))(); // TestFunc is passed a reference to test.
+std::bind(TestFunc, std::ref(test))();
+
+// test is now 2.
+```
+
+<br />
+
+<a id="user-content-note-batch-parameters"></a><sup>3</sup> *`nova::bind_batch` assumes the parameters denoting the range are sequential (i.e. `..., start, end, ...`), and it assumes that `start` is the first parameter to satisfy `std::is_integral`:*
+
+```C++
+// Correct, uses start as the start and end as the end.
+void CorrectBatchSignature(Foo foo, int start, unsigned end, char c);
+
+// Doesn't compile (unless Foo can convert to std::size_t)
+// Uses start as the start and foo as the end.
+void IncorrectBatchSignature(int start, Foo foo, long end, char c);
+
+// Compiles, but almost certainly incorrect.
+// Uses c as the start and start as the end
+void VeryIncorrectBatchSignature(Foo foo, char c, int start, unsigned end);
 ```
