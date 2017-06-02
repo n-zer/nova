@@ -31,6 +31,7 @@ Here's a sample program to get you started. It starts the job system, runs `Next
 
 ```C++
 #include <iostream>
+#include <string>
 #include "nova.h"
 
 void NextJob() {
@@ -75,6 +76,7 @@ Let's rewrite the sample program to work asynchronously:
 
 ```C++
 #include <iostream>
+#include <string>
 #include "nova.h"
 
 void NextJob(nova::dependency_token dt) {
@@ -110,6 +112,7 @@ We can rewrite the previous example in a way that uses both a synchronous start 
 
 ```C++
 #include <iostream>
+#include <string>
 #include "nova.h"
 
 void NextJob() {
