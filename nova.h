@@ -11,6 +11,8 @@
 #include <Windows.h>
 #include <memory>
 #include <cmath>
+#include <algorithm>
+#include <iterator>
 
 #include "concurrentqueue.h"
 
@@ -93,9 +95,20 @@ namespace nova {
 			T *& m_ptr;
 		};
 
-		constexpr std::size_t padSize = static_cast<std::size_t>(ceil(NOVA_CACHE_LINE_BYTES));
-
 		class alignas(NOVA_CACHE_LINE_BYTES) job {
+		private:
+			struct JobData {
+				JobData() {}
+				JobData(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
+					: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
+				}
+				void(*m_runFunc)(void *) = &job::no_op;
+				void(*m_deleteFunc)(void*) = &job::no_op;
+				void * m_runnable = nullptr;
+				dependency_token m_callToken;
+			};
+
+			static const std::size_t PADDING_SIZE = NOVA_CACHE_LINE_BYTES - sizeof(JobData);
 		public:
 			job() {}
 			~job() {
@@ -112,20 +125,35 @@ namespace nova {
 				return *this;
 			}
 
-			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0>
+			template<typename Runnable,
+				std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0,
+				std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE), int> = 0
+			>
 			job(Runnable&& runnable)
 				: m_data(
-					&job::run_runnable<std::decay_t<Runnable>>,
-					&job::delete_runnable<std::decay_t<Runnable>>,
+					&run_runnable<std::decay_t<Runnable>>,
+					&delete_runnable<std::decay_t<Runnable>>,
 					new std::decay_t<Runnable>(std::forward<Runnable>(runnable))
+				) {
+			}
+
+			template<typename Runnable,
+				std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0,
+				std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE, int> = 0
+			>
+			job(Runnable&& runnable)
+				: m_data(
+					&run_runnable<std::decay_t<Runnable>>,
+					&destruct_runnable<std::decay_t<Runnable>>,
+					new (padding) std::decay_t<Runnable>(std::forward<Runnable>(runnable))
 				) {
 			}
 
 			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0>
 			job(Runnable * runnable)
 				: m_data(
-					&job::run_runnable<std::decay_t<Runnable>>,
-					&job::no_op,
+					&run_runnable<std::decay_t<Runnable>>,
+					&no_op,
 					runnable
 				) {
 			}
@@ -139,10 +167,6 @@ namespace nova {
 
 			}
 
-			job(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
-				: m_data( runFunc, deleteFunc, runnable ) {
-			}
-
 			void operator () () const {
 				m_data.m_runFunc(m_data.m_runnable);
 			}
@@ -154,14 +178,12 @@ namespace nova {
 			void set_dependency_token(dependency_token && se) {
 				m_data.m_callToken = std::forward<dependency_token>(se);
 			}
-			void open_dependency_token() {
-				m_data.m_callToken.Open();
-			}
 
 			dependency_token & get_dependency_token() {
 				return m_data.m_callToken;
 			}
 
+		private:
 			template <typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
 			static void run_runnable(void * runnable) {
 				(*(static_cast<Runnable*>(runnable)))();
@@ -177,32 +199,37 @@ namespace nova {
 				delete static_cast<Runnable*>(runnable);
 			}
 
+			template <typename Runnable>
+			static void destruct_runnable(void * runnable) {
+				static_cast<Runnable*>(runnable)->~Runnable();
+			}
+
 			static void no_op(void * runnable) {};
 
-		private:
+			bool is_small_object_optimized() {
+				char* rp = static_cast<char*>(m_data.m_runnable);
+				return rp >= std::begin(padding) && rp < std::end(padding);
+			}
+
 			void move(job && e) noexcept {
 				m_data.m_runFunc = e.m_data.m_runFunc;
 				m_data.m_deleteFunc = e.m_data.m_deleteFunc;
-				m_data.m_runnable = e.m_data.m_runnable;
 				m_data.m_callToken = std::move(e.m_data.m_callToken);
+
+				if (e.is_small_object_optimized()) {
+					std::copy(std::begin(e.padding), std::end(e.padding), std::begin(padding));
+					m_data.m_runnable = padding;
+				}
+				else
+					m_data.m_runnable = e.m_data.m_runnable;
+
 				e.m_data.m_runFunc = &job::no_op;
 				e.m_data.m_deleteFunc = &job::no_op;
 				e.m_data.m_runnable = nullptr;
 			}
 
-			struct JobData {
-				JobData() {}
-				JobData(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable) 
-					: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
-				}
-				void(*m_runFunc)(void *) = &job::no_op;
-				void(*m_deleteFunc)(void*) = &job::no_op;
-				void * m_runnable = nullptr;
-				dependency_token m_callToken;
-			};
-
+			char padding[PADDING_SIZE];
 			JobData m_data;
-			char padding[padSize - sizeof(JobData)];
 		};
 	}
 
@@ -718,7 +745,7 @@ namespace nova {
 		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
 		static void pack_runnable(std::array<job, N> & envs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
 			std::vector<job> splitEnvs = split_batch_function_no_alloc(bf);
-			batchJobs.insert(batchJobs.end(), splitEnvs.begin(), splitEnvs.end());
+			batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
 		}
 
 		//Breaks a Runnable off the parameter pack and recurses
