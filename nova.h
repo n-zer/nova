@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef NOVA_H
+#define NOVA_H
+
 #include <vector>
 #include <array>
 #include <thread>
@@ -9,9 +12,10 @@
 #include <memory>
 #include <cmath>
 
-#include "queue_adaptors.h"
+#include "concurrentqueue.h"
 
 #define NOVA_CACHE_LINE_BYTES 64
+#define NOVA_SPIN_COUNT 10000
 
 namespace nova {
 
@@ -236,12 +240,6 @@ namespace nova {
 
 #pragma region queue_wrapper
 
-#define SPIN_COUNT 10000
-
-#ifndef NOVA_QUEUE_TYPE
-#define NOVA_QUEUE_TYPE MoodycamelAdaptor
-#endif // !NOVA_QUEUE_TYPE
-
 	namespace impl{
 		class critical_lock {
 		public:
@@ -270,6 +268,29 @@ namespace nova {
 			}
 
 			CRITICAL_SECTION cs;
+		}; 
+		
+		template<typename T>
+		class moodycamel_adaptor {
+		public:
+			bool pop(T& item) {
+				return m_queueWrapper.try_dequeue(item);
+			}
+
+			void push(T&& item) {
+				m_queueWrapper.enqueue(std::forward<T>(item));
+			}
+
+			template<std::size_t N>
+			void push(std::array<T, N> && items) {
+				m_queueWrapper.enqueue_bulk(std::make_move_iterator(std::begin(items)), items.size());
+			}
+
+			void push(std::vector<T> && items) {
+				m_queueWrapper.enqueue_bulk(std::make_move_iterator(std::begin(items)), items.size());
+			}
+		private:
+			::moodycamel::ConcurrentQueue<T> m_queueWrapper;
 		};
 
 		template <typename T>
@@ -283,7 +304,7 @@ namespace nova {
 			void pop(T& item) {
 				unsigned counter = 0;
 				while (!m_globalQueue.pop(item)) {
-					if (counter++ > SPIN_COUNT) {
+					if (counter++ > NOVA_SPIN_COUNT) {
 						counter = 0;
 						SleepConditionVariableCS(&s_cv, &s_cs.cs, INFINITE);
 					}
@@ -293,7 +314,7 @@ namespace nova {
 			void pop_main(T& item) {
 				unsigned counter = 0;
 				while (!m_globalQueue.pop(item) && !m_mainQueue.pop(item)) {
-					if (counter++ > SPIN_COUNT) {
+					if (counter++ > NOVA_SPIN_COUNT) {
 						counter = 0;
 						SleepConditionVariableCS(&s_mainCV, &s_cs.cs, INFINITE);
 					}
@@ -327,8 +348,8 @@ namespace nova {
 			}
 
 		private:
-			NOVA_QUEUE_TYPE<T> m_globalQueue;
-			NOVA_QUEUE_TYPE<T> m_mainQueue;
+			moodycamel_adaptor<T> m_globalQueue;
+			moodycamel_adaptor<T> m_mainQueue;
 			static CONDITION_VARIABLE s_cv;
 			static CONDITION_VARIABLE s_mainCV;
 			static thread_local critical_wrapper s_cs;
@@ -638,6 +659,86 @@ namespace nova {
 
 #pragma endregion
 
+#pragma region split_batch_function
+
+	namespace impl {
+
+		//Converts a BatchJob into a vector of Envelopes
+		template<typename Callable, typename ... Params>
+		static std::vector<job> split_batch_function(batch_function<Callable, Params...> && bf) {
+			std::vector<job> jobs;
+			jobs.reserve(bf.get_sections());
+			typedef batch_function<Callable, Params...> ptrType;
+			std::shared_ptr<ptrType> basePtr = std::make_shared<ptrType>(bf);
+			for (unsigned int section = 0; section < bf.get_sections(); section++) {
+				jobs.emplace_back(basePtr);
+			}
+			return jobs;
+		}
+
+		//Converts a BatchJob into a vector of Envelopes without copying the job to the heap
+		template<typename Callable, typename ... Params>
+		static std::vector<job> split_batch_function_no_alloc(batch_function<Callable, Params...> & bf) {
+			std::vector<job> jobs;
+			jobs.reserve(bf.get_sections());
+			for (unsigned int section = 0; section < bf.get_sections(); section++) {
+				jobs.emplace_back(&bf);
+			}
+			return jobs;
+		}
+
+	}
+
+#pragma endregion
+
+#pragma region pack_runnable
+
+	namespace impl {
+
+		//Loads a Runnable into an envelope and pushes it to the given vector. Allocates.
+		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<Alloc, int> = 0>
+		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable&& runnable) {
+			jobs[index++] = std::move(job{ std::forward<Runnable>(runnable) });
+		}
+
+		//Loads a Runnable into an envelope and pushes it to the given vector
+		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
+		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable&& runnable) {
+			jobs[index++] = { &runnable };
+		}
+
+		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector Allocates.
+		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<Alloc, int> = 0>
+		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
+			std::vector<job> splitEnvs = split_batch_function(std::forward<decltype(bf)>(bf));
+			batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
+		}
+
+		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
+		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
+		static void pack_runnable(std::array<job, N> & envs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
+			std::vector<job> splitEnvs = split_batch_function_no_alloc(bf);
+			batchJobs.insert(batchJobs.end(), splitEnvs.begin(), splitEnvs.end());
+		}
+
+		//Breaks a Runnable off the parameter pack and recurses
+		template<bool Alloc, std::size_t N, typename Runnable, typename ... Runnables>
+		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable && runnable, Runnables&&... runnables) {
+			pack_runnable<Alloc>(jobs, index, batchJobs, std::forward<Runnable>(runnable));
+			pack_runnable<Alloc>(jobs, index, batchJobs, std::forward<Runnables>(runnables)...);
+		}
+
+		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
+		template<bool Alloc, std::size_t N, typename ... Runnables>
+		static void pack_runnable(std::array<job, N> & jobs, std::vector<job> & batchJobs, Runnables&&... runnables) {
+			std::size_t index(0);
+			pack_runnable<Alloc>(jobs, index, batchJobs, std::forward<Runnables>(runnables)...);
+		}
+
+	}
+
+#pragma endregion
+
 #pragma region push
 
 #pragma region helpers
@@ -666,28 +767,6 @@ namespace nova {
 
 	namespace impl{
 
-		//Queues a set of Runnables
-		template<bool ToMain, bool Dependent, typename ... Runnables >
-		void push(Runnables&&... runnables) {
-			using namespace impl;
-			std::array<job, sizeof...(Runnables)-batch_count<Runnables...>::value> jobs;
-			std::vector<job> batchJobs;
-			batchJobs.reserve(batch_count<Runnables...>::value * 4);
-			pack_runnable<true>(jobs, batchJobs, std::forward<Runnables>(runnables)...);
-			push_picker<ToMain, Dependent>(std::move(jobs));
-			push_picker<ToMain, Dependent>(std::move(batchJobs));
-		}
-
-		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<Dependent, int> = 0>
-		void push_picker(Collection && collection) {
-			impl::push<ToMain>(*resources::dependent_token(), std::forward<Collection>(collection));
-		}
-
-		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<!Dependent, int> = 0>
-		void push_picker(Collection && collection) {
-			impl::push<ToMain>(std::forward<Collection>(collection));
-		}
-
 		//Queues an array of Envelopes
 		template<bool ToMain, std::size_t N>
 		void push(std::array<impl::job, N> && jobs) {
@@ -714,26 +793,48 @@ namespace nova {
 				j.set_dependency_token(dt);
 			push<ToMain>(std::forward<decltype(jobs)>(jobs));
 		}
+
+		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<Dependent, int> = 0>
+		void push_picker(Collection && collection) {
+			impl::push<ToMain>(*resources::dependent_token(), std::forward<Collection>(collection));
+		}
+
+		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<!Dependent, int> = 0>
+		void push_picker(Collection && collection) {
+			impl::push<ToMain>(std::forward<Collection>(collection));
+		}
+
+		//Queues a set of Runnables
+		template<bool ToMain, bool Dependent, typename ... Runnables >
+		void push(Runnables&&... runnables) {
+			using namespace impl;
+			std::array<job, sizeof...(Runnables)-batch_count<Runnables...>::value> jobs;
+			std::vector<job> batchJobs;
+			batchJobs.reserve(batch_count<Runnables...>::value * 4);
+			pack_runnable<true>(jobs, batchJobs, std::forward<Runnables>(runnables)...);
+			push_picker<ToMain, Dependent>(std::move(jobs));
+			push_picker<ToMain, Dependent>(std::move(batchJobs));
+		}
 	}
 
 #pragma endregion
 
+	// Asynchronously invokes a set of Runnable objects.
+	// If ToMain is true, the Runnables will be invoked on the main thread.
+	template<bool ToMain = false, typename ... Runnables>
+	void push(Runnables&&... runnables) {
+		impl::push<ToMain, false>(std::forward<Runnables>(runnables)...);
+	}
+
+	// Asynchronously invokes a set of Runnable objects. If the current job was invoked synchronously, it will not return until these Runnables return.
+	// If ToMain is true, the Runnables will be invoked on the main thread.
+	template<bool ToMain = false, typename ... Runnables>
+	void push_dependent(Runnables&&... runnables) {
+		impl::push<ToMain, true>(std::forward<Runnables>(runnables)...);
+	}
+
 #pragma region call
 	namespace impl{
-		template<bool ToMain, bool FromMain, typename ... Params>
-		void call(Params&&... params) {
-			PVOID currentFiber = GetCurrentFiber();
-			auto completionJob = [=]() {
-				nova::push<FromMain>(bind(&finish_called_job, currentFiber));
-			};
-
-			dependency_token dt(job{ &completionJob });
-			resources::call_token() = &dt;
-
-			call_push<ToMain>(dt, std::forward<Params>(params)...);
-
-			SwitchToFiber(get_fresh_fiber());
-		}
 
 		template<bool ToMain, std::size_t N>
 		void call_push(dependency_token & dt, std::array<job, N> && jobs, std::vector<job> && batchJobs) {
@@ -774,6 +875,21 @@ namespace nova {
 			return newFiber;
 		}
 
+		template<bool ToMain, bool FromMain, typename ... Params>
+		void call(Params&&... params) {
+			PVOID currentFiber = GetCurrentFiber();
+			auto completionJob = [=]() {
+				nova::push<FromMain>(bind(&finish_called_job, currentFiber));
+			};
+
+			dependency_token dt(job{ &completionJob });
+			resources::call_token() = &dt;
+
+			call_push<ToMain>(dt, std::forward<Params>(params)...);
+
+			SwitchToFiber(get_fresh_fiber());
+		}
+
 	}
 
 #pragma endregion
@@ -794,100 +910,6 @@ namespace nova {
 	}
 
 #pragma endregion
-
-#pragma region pack_runnable
-
-	namespace impl{
-
-		//Generates Envelopes from the given Runnables and inserts them into a std::array (for standalone) or a std::vector (for batch)
-		template<bool Alloc, std::size_t N, typename ... Runnables>
-		static void pack_runnable(std::array<job, N> & jobs, std::vector<job> & batchJobs, Runnables&&... runnables) {
-			std::size_t index(0);
-			pack_runnable<Alloc>(jobs, index, batchJobs, std::forward<Runnables>(runnables)...);
-		}
-
-		//Breaks a Runnable off the parameter pack and recurses
-		template<bool Alloc, std::size_t N, typename Runnable, typename ... Runnables>
-		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable && runnable, Runnables&&... runnables) {
-			pack_runnable<Alloc>(jobs, index, batchJobs, std::forward<Runnable>(runnable));
-			pack_runnable<Alloc>(jobs, index, batchJobs, std::forward<Runnables>(runnables)...);
-		}
-
-		//Loads a Runnable into an envelope and pushes it to the given vector. Allocates.
-		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<Alloc, int> = 0>
-		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable&& runnable) {
-			jobs[index++] = std::move(job{ std::forward<Runnable>(runnable) });
-		}
-
-		//Loads a Runnable into an envelope and pushes it to the given vector
-		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable&& runnable) {
-			jobs[index++] = { &runnable };
-		}
-
-		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector Allocates.
-		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<Alloc, int> = 0>
-		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
-			std::vector<job> splitEnvs = split_batch_function(std::forward<decltype(bf)>(bf));
-			batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
-		}
-
-		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
-		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void pack_runnable(std::array<job, N> & envs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
-			std::vector<job> splitEnvs = split_batch_function_no_alloc(bf);
-			batchJobs.insert(batchJobs.end(), splitEnvs.begin(), splitEnvs.end());
-		}
-
-	}
-
-#pragma endregion
-
-#pragma region split_batch_function
-
-	namespace impl{
-
-		//Converts a BatchJob into a vector of Envelopes
-		template<typename Callable, typename ... Params>
-		static std::vector<job> split_batch_function(batch_function<Callable, Params...> && bf) {
-			std::vector<job> jobs;
-			jobs.reserve(bf.get_sections());
-			typedef batch_function<Callable, Params...> ptrType;
-			std::shared_ptr<ptrType> basePtr = std::make_shared<ptrType>(bf);
-			for (unsigned int section = 0; section < bf.get_sections(); section++) {
-				jobs.emplace_back(basePtr);
-			}
-			return jobs;
-		}
-
-		//Converts a BatchJob into a vector of Envelopes without copying the job to the heap
-		template<typename Callable, typename ... Params>
-		static std::vector<job> split_batch_function_no_alloc(batch_function<Callable, Params...> & bf) {
-			std::vector<job> jobs;
-			jobs.reserve(bf.get_sections());
-			for (unsigned int section = 0; section < j.get_sections(); section++) {
-				jobs.emplace_back(&bf);
-			}
-			return jobs;
-		}
-
-	}
-
-#pragma endregion
-
-	// Asynchronously invokes a set of Runnable objects.
-	// If ToMain is true, the Runnables will be invoked on the main thread.
-	template<bool ToMain = false, typename ... Runnables>
-	void push(Runnables&&... runnables) {
-		impl::push<ToMain, false>(std::forward<Runnables>(runnables)...);
-	}
-
-	// Asynchronously invokes a set of Runnable objects. If the current job was invoked synchronously, it will not return until these Runnables return.
-	// If ToMain is true, the Runnables will be invoked on the main thread.
-	template<bool ToMain = false, typename ... Runnables>
-	void push_dependent(Runnables&&... runnables) {
-		impl::push<ToMain, true>(std::forward<Runnables>(runnables)...);
-	}
 
 	// Synchronously invokes a set of Runnable objects.
 	// If ToMain is true, the Runnables will be invoked on the main thread.
@@ -910,15 +932,9 @@ namespace nova {
 	template<typename Callable, typename ... Params>
 	void parallel_for(unsigned start, unsigned end, Callable callable, Params... args) {
 		call(bind_batch([&](unsigned start, unsigned end, Params... args) {
-			for (BatchIndex c = start; c < end; c++)
+			for (unsigned c = start; c < end; c++)
 				callable(c, args...);
 		}, start, end, args...));
-	}
-
-	// Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
-	template <typename Callable, typename ... Params>
-	void start_async(Callable callable, Params ... args) {
-		start_async(std::thread::hardware_concurrency(), callable, args...);
 	}
 
 	// Starts the job system with the given number of threads and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
@@ -941,10 +957,10 @@ namespace nova {
 			wt.Join();
 	}
 
-	//Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when the Callable returns.
+	// Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
 	template <typename Callable, typename ... Params>
-	void start_sync(Callable callable, Params ... args) {
-		start_sync(std::thread::hardware_concurrency(), callable, args...);
+	void start_async(Callable callable, Params ... args) {
+		start_async(std::thread::hardware_concurrency(), callable, args...);
 	}
 
 	//Starts the job system with the given number of threads and enters the given Callable with the given parameters. Returns when the Callable returns.
@@ -967,6 +983,12 @@ namespace nova {
 			wt.Join();
 	}
 
+	//Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when the Callable returns.
+	template <typename Callable, typename ... Params>
+	void start_sync(Callable callable, Params ... args) {
+		start_sync(std::thread::hardware_concurrency(), callable, args...);
+	}
+
 	// Stops the job system, triggering a return from the start function. No invocations attempted after this one will occur.
 	inline void kill_all_workers() {
 		using namespace impl;
@@ -974,3 +996,5 @@ namespace nova {
 			nova::push(bind(worker_thread::kill_worker));
 	}
 }
+
+#endif // !NOVA_H
