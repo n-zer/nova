@@ -132,9 +132,9 @@ namespace nova {
 
 			job(void(*func)())
 				: m_data(
-					&job::run_runnable<void()>,
-					&job::no_op,
-					func
+					&job::run_runnable<void(*)()>,
+					&job::delete_runnable<void(*)()>,
+					new decltype(func)(func)
 				) {
 
 			}
