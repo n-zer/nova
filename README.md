@@ -14,6 +14,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 	* [`start_async`](#asynchronous-usage)
 	* [`push`](#asynchronous-usage)
 	* [`dependency_token`](#asynchronous-usage)
+	* [`kill_all_workers`](#asynchronous-usage)
 * [Semi-synchronous usage](#semi-synchronous-usage)
 	* [`push_dependent`](#semi-synchronous-usage)
 * [Batching](#batching)
@@ -70,7 +71,7 @@ After entering `InitialJob` we reach the call to `nova::call`, which takes one o
 Once `NextJob` and `JobWithParam` return `nova::call` will return, then `InitialJob` will return, the job system will shutdown, `nova::start_sync` will return, and the program will end.
 
 ## Asynchronous usage
-#### [`start_async`](https://github.com/narrill/nova/wiki/API-reference#novastart_async), [`push`](https://github.com/narrill/nova/wiki/API-reference#novapush), [`dependency_token`](https://github.com/narrill/nova/wiki/API-reference#novadependency_token) <sub>API reference</sub>
+#### [`start_async`](https://github.com/narrill/nova/wiki/API-reference#novastart_async), [`push`](https://github.com/narrill/nova/wiki/API-reference#novapush), [`dependency_token`](https://github.com/narrill/nova/wiki/API-reference#novadependency_token), [`kill_all_workers`](https://github.com/narrill/nova/wiki/API-reference#novakill_all_workers) <sub>API reference</sub>
 
 Let's rewrite the sample program to work asynchronously:
 
