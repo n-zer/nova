@@ -47,23 +47,17 @@ namespace nova {
 	public:
 		dependency_token() {}
 
-		dependency_token(impl::job & e);
-
-		dependency_token(impl::job && e);
-
 		dependency_token(const dependency_token &) = default;
-
 		dependency_token& operator=(const dependency_token&) = default;
 
 		dependency_token(dependency_token &&) = default;
-
 		dependency_token& operator=(dependency_token&&) = default;
 
-		template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int> = 0>
+		template<typename Runnable, 
+			std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int> = 0>
 		dependency_token(Runnable&& runnable);
 
-		// Releases the token.
-		void Open() {
+		void Release() {
 			m_token.reset();
 		}
 	private:
@@ -255,14 +249,6 @@ namespace nova {
 		: m_token(std::make_shared<shared_token>(std::forward<std::decay_t<Runnable>>(runnable))) {
 	}
 
-	inline dependency_token::dependency_token(impl::job & e)
-		: m_token(std::make_shared<shared_token>(e)) {
-	}
-
-	inline dependency_token::dependency_token(impl::job && e)
-		: m_token(std::make_shared<shared_token>(std::forward<impl::job>(e))) {
-	}
-
 #pragma endregion
 
 #pragma region resources
@@ -396,7 +382,7 @@ namespace nova {
 
 			void pop_main(queue_item_t& item) {
 				unsigned counter = 0;
-				while (!m_globalQueue.pop(current_thread_data()->globalData, item) && !m_mainQueue.pop(current_thread_data()->mainData, item)) {
+				while (!m_mainQueue.pop(current_thread_data()->mainData, item) && !m_globalQueue.pop(current_thread_data()->globalData, item)) {
 					if (counter++ > NOVA_SPIN_COUNT) {
 						counter = 0;
 						SleepConditionVariableCS(&s_mainCV.cv, &s_cs.cs, INFINITE);
@@ -930,14 +916,14 @@ namespace nova {
 			SwitchToFiber(oldFiber);
 
 			//Re-use starts here
-			resources::call_token()->Open();
+			resources::call_token()->Release();
 		}
 
 		//Starting point for a new fiber, queues a list of jobs and immediately enters the job loop.
 		//This is used by the Call- functions to delay queueing of jobs until after the calling fiber
 		//has been suspended.
 		inline void open_call_token_enter_job_loop(LPVOID jobPtr) {
-			resources::call_token()->Open();
+			resources::call_token()->Release();
 			worker_thread::job_loop();
 		}
 
@@ -992,16 +978,16 @@ namespace nova {
 
 	// Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation.
 	template<typename Callable, typename ... Params>
-	void parallel_for(unsigned start, unsigned end, Callable callable, Params... args) {
-		call(bind_batch([&](unsigned start, unsigned end, Params... args) {
-			for (unsigned c = start; c < end; c++)
-				callable(c, args...);
-		}, start, end, args...));
+	void parallel_for(std::size_t start, std::size_t end, Callable&& callable, Params&&... args) {
+		call(bind_batch([&](std::size_t start, std::size_t end, Params&&... args) {
+			for (std::size_t c = start; c < end; c++)
+				std::forward<Callable>(callable)(c, std::forward<Params>(args)...);
+		}, start, end, std::forward<Params>(args)...));
 	}
 
 	// Starts the job system with the given number of threads and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
 	template <typename Callable, typename ... Params>
-	void start_async(unsigned threadCount, Callable callable, Params ... args) {
+	void start_async(unsigned threadCount, Callable&& callable, Params&& ... args) {
 		using namespace impl;
 
 		//create threads
@@ -1013,7 +999,7 @@ namespace nova {
 		queue_wrapper::current_thread_data() = &td;
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		push<true>(bind(callable, args...));
+		push<true>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
 
 		worker_thread::job_loop();
 
@@ -1023,13 +1009,13 @@ namespace nova {
 
 	// Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when kill_all_workers is called.
 	template <typename Callable, typename ... Params>
-	void start_async(Callable callable, Params ... args) {
-		start_async(std::thread::hardware_concurrency(), callable, args...);
+	void start_async(Callable&& callable, Params&& ... args) {
+		start_async(std::thread::hardware_concurrency(), std::forward<Callable>(callable), std::forward<Params>(args)...);
 	}
 
 	//Starts the job system with the given number of threads and enters the given Callable with the given parameters. Returns when the Callable returns.
 	template <typename Callable, typename ... Params>
-	void start_sync(unsigned threadCount, Callable callable, Params ... args) {
+	void start_sync(unsigned threadCount, Callable&& callable, Params&& ... args) {
 		using namespace impl;
 
 		//create threads
@@ -1041,7 +1027,7 @@ namespace nova {
 		queue_wrapper::current_thread_data() = &td;
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		nova::call<true, true>(bind(callable, args...));
+		nova::call<true, true>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
 
 		for (worker_thread & wt : threads)
 			push(bind(worker_thread::kill_worker));
@@ -1051,8 +1037,8 @@ namespace nova {
 
 	//Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when the Callable returns.
 	template <typename Callable, typename ... Params>
-	void start_sync(Callable callable, Params ... args) {
-		start_sync(std::thread::hardware_concurrency(), callable, args...);
+	void start_sync(Callable&& callable, Params&& ... args) {
+		start_sync(std::thread::hardware_concurrency(), std::forward<Callable>(callable), std::forward<Params>(args)...);
 	}
 
 	// Stops the job system, triggering a return from the start function. No invocations attempted after this one will occur.
