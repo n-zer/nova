@@ -105,23 +105,29 @@ namespace nova {
 			static const std::size_t PADDING_SIZE = NOVA_CACHE_LINE_BYTES - sizeof(JobData);
 		public:
 			job() {}
-			~job() {
-				m_data.m_deleteFunc(m_data.m_runnable);
-			}
+
 			job(const job &) = delete;
 			job operator=(const job &) = delete;
+
 			job(job && e) noexcept {
 				move(std::forward<job>(e));
 			}
+
 			job& operator=(job && e) noexcept {
 				m_data.m_deleteFunc(m_data.m_runnable);
 				move(std::forward<job>(e));
 				return *this;
 			}
 
+			~job() {
+				m_data.m_deleteFunc(m_data.m_runnable);
+			}
+
 			template<typename Runnable,
-				std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0,
-				std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE), int> = 0
+				std::enable_if_t<
+					!std::is_same<std::decay_t<Runnable>, job>::value
+					&& !(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE)
+				, int> = 0
 			>
 			job(Runnable&& runnable)
 				: m_data(
@@ -132,8 +138,10 @@ namespace nova {
 			}
 
 			template<typename Runnable,
-				std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0,
-				std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE, int> = 0
+				std::enable_if_t<
+					!std::is_same<std::decay_t<Runnable>, job>::value
+					&& alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE
+				, int> = 0
 			>
 			job(Runnable&& runnable)
 				: m_data(
