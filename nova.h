@@ -143,22 +143,18 @@ namespace nova {
 				) {
 			}
 
-			template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, job>::value, int> = 0>
+			template<typename Runnable, 
+				std::enable_if_t<
+					!std::is_same<std::decay_t<Runnable>, job>::value
+					&& !std::is_same<std::decay_t<Runnable>, void(*)()>::value,
+				int> = 0
+			>
 			job(Runnable * runnable)
 				: m_data(
 					&run_runnable<std::decay_t<Runnable>>,
 					&no_op,
 					runnable
 				) {
-			}
-
-			job(void(*func)())
-				: m_data(
-					&job::run_runnable<void(*)()>,
-					&job::delete_runnable<void(*)()>,
-					new decltype(func)(func)
-				) {
-
 			}
 
 			void operator () () const {
