@@ -40,8 +40,6 @@ namespace nova {
 
 #pragma endregion
 
-	namespace impl{ class job; }
-
 	// Takes a Runnable and invokes it when all copies of the token are released or destroyed.
 	class dependency_token {
 	public:
@@ -260,8 +258,7 @@ namespace nova {
 	namespace impl {
 		class resources {
 		public:
-			//Meyers singletons
-			
+			// Meyers singletons			
 			static std::vector<LPVOID>& available_fibers() {
 				static thread_local std::vector<LPVOID> af;
 				return af;
@@ -379,7 +376,7 @@ namespace nova {
 				while (!m_globalQueue.pop(current_thread_data()->globalData, item)) {
 					if (counter++ > NOVA_SPIN_COUNT) {
 						counter = 0;
-						SleepConditionVariableCS(&s_cv.cv, &s_cs.cs, INFINITE);
+						SleepConditionVariableCS(&global_condition_variable(), &dummy_critical_section(), INFINITE);
 					}
 				}
 			}
@@ -389,7 +386,7 @@ namespace nova {
 				while (!m_mainQueue.pop(current_thread_data()->mainData, item) && !m_globalQueue.pop(current_thread_data()->globalData, item)) {
 					if (counter++ > NOVA_SPIN_COUNT) {
 						counter = 0;
-						SleepConditionVariableCS(&s_mainCV.cv, &s_cs.cs, INFINITE);
+						SleepConditionVariableCS(&main_condition_variable(), &dummy_critical_section(), INFINITE);
 					}
 				}
 			}
@@ -397,27 +394,27 @@ namespace nova {
 			template<bool ToMain, std::enable_if_t<!ToMain, int> = 0>
 			void push(queue_item_t&& item) {
 				m_globalQueue.push(current_thread_data()->globalData, std::forward<queue_item_t>(item));
-				WakeConditionVariable(&s_cv.cv);
-				WakeConditionVariable(&s_mainCV.cv);
+				WakeConditionVariable(&global_condition_variable());
+				WakeConditionVariable(&main_condition_variable());
 			}
 
 			template<bool ToMain, typename Collection, std::enable_if_t<!ToMain, int> = 0>
 			void push(Collection && items) {
 				m_globalQueue.push(current_thread_data()->globalData, std::forward<decltype(items)>(items));
-				WakeAllConditionVariable(&s_cv.cv);
-				WakeConditionVariable(&s_mainCV.cv);
+				WakeAllConditionVariable(&global_condition_variable());
+				WakeConditionVariable(&main_condition_variable());
 			}
 
 			template<bool ToMain, std::enable_if_t<ToMain, int> = 0>
 			void push(queue_item_t&& item) {
 				m_mainQueue.push(current_thread_data()->mainData, std::forward<queue_item_t>(item));
-				WakeConditionVariable(&s_mainCV.cv);
+				WakeConditionVariable(&main_condition_variable());
 			}
 
 			template<bool ToMain, typename Collection, std::enable_if_t<ToMain, int> = 0>
 			void push(Collection && items) {
 				m_mainQueue.push(current_thread_data()->mainData, std::forward<decltype(items)>(items));
-				WakeConditionVariable(&s_mainCV.cv);
+				WakeConditionVariable(&main_condition_variable());
 			}
 
 			thread_data make_thread_data() {
@@ -428,19 +425,22 @@ namespace nova {
 			queue_wrapper() = default;
 			moodycamel_adaptor m_globalQueue;
 			moodycamel_adaptor m_mainQueue;
-			static condition_wrapper s_cv;
-			static condition_wrapper s_mainCV;
-			static thread_local critical_wrapper s_cs;
-			static thread_local critical_lock s_cl;
+
+			// Meyers singletons
+			static CONDITION_VARIABLE & global_condition_variable() {
+				static condition_wrapper cw;
+				return cw.cv;
+			}
+			static CONDITION_VARIABLE & main_condition_variable() {
+				static condition_wrapper cw;
+				return cw.cv;
+			}
+			static CRITICAL_SECTION & dummy_critical_section() {
+				static thread_local critical_wrapper cs;
+				static thread_local critical_lock cl(cs.cs);
+				return cs.cs;
+			}
 		};
-
-		condition_wrapper queue_wrapper::s_cv;
-
-		condition_wrapper queue_wrapper::s_mainCV;
-
-		thread_local critical_wrapper queue_wrapper::s_cs;
-
-		thread_local critical_lock queue_wrapper::s_cl(queue_wrapper::s_cs.cs);
 	}
 
 #pragma endregion
@@ -456,7 +456,18 @@ namespace nova {
 			}
 			worker_thread(worker_thread&&) noexcept = default;
 			worker_thread& operator=(worker_thread&&) noexcept = default;
-			static void job_loop();
+			static void worker_thread::job_loop() {
+				while (running()) {
+					job j;
+					if (worker_thread::get_thread_id() == 0)
+						queue_wrapper::instance().pop_main(j);
+					else
+						queue_wrapper::instance().pop(j);
+
+					raii_ptr<dependency_token> rp(resources::dependent_token(), &j.get_dependency_token());
+					j();
+				}
+			}
 			static std::size_t get_thread_id() {
 				return thread_id();
 			}
@@ -472,7 +483,7 @@ namespace nova {
 		private:
 			void init_thread() {
 				{
-					std::lock_guard<std::mutex> lock(init_lock());
+					critical_lock cl(init_lock().cs);
 					thread_id() = thread_count();
 					thread_count()++;
 				}
@@ -481,7 +492,7 @@ namespace nova {
 				job_loop();
 			}
 
-			//Meyers singletons
+			// Meyers singletons
 			static std::size_t & thread_id() {
 				static thread_local std::size_t id = 0;
 				return id;
@@ -494,8 +505,8 @@ namespace nova {
 				static std::size_t count = 1;
 				return count;
 			}
-			static std::mutex & init_lock() {
-				static std::mutex lock;
+			static critical_wrapper & init_lock() {
+				static critical_wrapper lock;
 				return lock;
 			}
 
@@ -505,38 +516,6 @@ namespace nova {
 	}
 
 #pragma endregion
-
-#pragma region pop
-
-	namespace impl {
-
-		//Attempts to grab an envelope from the queue
-		inline void pop(job &j) {
-			queue_wrapper::instance().pop(j);
-		}
-
-		inline void pop_main(job &j) {
-			queue_wrapper::instance().pop_main(j);
-		}
-
-	}
-
-#pragma endregion
-
-	namespace impl {
-		void worker_thread::job_loop() {
-			while (running()) {
-				job j;
-				if (worker_thread::get_thread_id() == 0)
-					pop_main(j);
-				else
-					pop(j);
-
-				raii_ptr<dependency_token> rp(resources::dependent_token(), &j.get_dependency_token());
-				j();
-			}
-		}
-	}
 
 #pragma region function & batch_function
 
