@@ -13,6 +13,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iterator>
+#include <atomic>
 
 #include "concurrentqueue.h"
 
@@ -383,7 +384,7 @@ namespace nova {
 
 			void pop_main(queue_item_t& item) {
 				unsigned counter = 0;
-				while (!m_mainQueue.pop(current_thread_data()->mainData, item) && !m_globalQueue.pop(current_thread_data()->globalData, item)) {
+				while (!try_pop_main_queue(item) && !m_globalQueue.pop(current_thread_data()->globalData, item)) {
 					if (counter++ > NOVA_SPIN_COUNT) {
 						counter = 0;
 						SleepConditionVariableCS(&main_condition_variable(), &dummy_critical_section(), INFINITE);
@@ -408,12 +409,14 @@ namespace nova {
 			template<bool ToMain, std::enable_if_t<ToMain, int> = 0>
 			void push(queue_item_t&& item) {
 				m_mainQueue.push(current_thread_data()->mainData, std::forward<queue_item_t>(item));
+				is_main_queue_empty.store(false, std::memory_order_relaxed);
 				WakeConditionVariable(&main_condition_variable());
 			}
 
 			template<bool ToMain, typename Collection, std::enable_if_t<ToMain, int> = 0>
 			void push(Collection && items) {
 				m_mainQueue.push(current_thread_data()->mainData, std::forward<decltype(items)>(items));
+				is_main_queue_empty.store(false, std::memory_order_relaxed);
 				WakeConditionVariable(&main_condition_variable());
 			}
 
@@ -422,7 +425,18 @@ namespace nova {
 			}
 
 		private:
+			bool try_pop_main_queue(queue_item_t & item) {
+				bool exp = false;
+				if (is_main_queue_empty.compare_exchange_weak(exp, true, std::memory_order_relaxed)
+					&& m_mainQueue.pop(current_thread_data()->mainData, item)) {
+					is_main_queue_empty.store(false, std::memory_order_relaxed);
+					return true;
+				}
+				return false;
+			}
+
 			queue_wrapper() = default;
+			std::atomic_bool is_main_queue_empty = true;
 			moodycamel_adaptor m_globalQueue;
 			moodycamel_adaptor m_mainQueue;
 
