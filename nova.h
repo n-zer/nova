@@ -327,20 +327,20 @@ namespace nova {
 			};
 
 			bool pop(queue_data& qd, queue_item_t& item) {
-				return m_queue.try_dequeue(/*qd.ct,*/ item);
+				return m_queue.try_dequeue(qd.ct, item);
 			}
 
 			void push(queue_data& qd, queue_item_t&& item) {
-				m_queue.enqueue(/*qd.pt,*/ std::forward<queue_item_t>(item));
+				m_queue.enqueue(qd.pt, std::forward<queue_item_t>(item));
 			}
 
 			template<std::size_t N>
 			void push(queue_data& qd, std::array<queue_item_t, N> && items) {
-				m_queue.enqueue_bulk(/*qd.pt,*/ std::make_move_iterator(std::begin(items)), items.size());
+				m_queue.enqueue_bulk(qd.pt, std::make_move_iterator(std::begin(items)), items.size());
 			}
 
 			void push(queue_data& qd, std::vector<queue_item_t> && items) {
-				m_queue.enqueue_bulk(/*qd.pt,*/ std::make_move_iterator(std::begin(items)), items.size());
+				m_queue.enqueue_bulk(qd.pt, std::make_move_iterator(std::begin(items)), items.size());
 			}
 
 			queue_data make_queue_data() {
