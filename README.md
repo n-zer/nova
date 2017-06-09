@@ -214,7 +214,7 @@ will call the lambda 1000 times, but will only create as many jobs as the system
 However, if you can process multiple elements at once (e.g. SIMD) it may be more performant to use a batch function directly.
 
 ## Main thread invocation
-#### [`to_main`](https://github.com/narrill/nova/wiki/API-reference#novasto_main), [`return_main`](https://github.com/narrill/nova/wiki/API-reference#novasreturn_main), [`switch_to_main`](https://github.com/narrill/nova/wiki/API-reference#novaswitch_to_main) <sub>API reference</sub>
+#### [`to_main`](https://github.com/narrill/nova/wiki/API-reference#novato_main), [`return_main`](https://github.com/narrill/nova/wiki/API-reference#novareturn_main), [`switch_to_main`](https://github.com/narrill/nova/wiki/API-reference#novaswitch_to_main) <sub>API reference</sub>
 
 There are two other **controls** in addition to `nova::dependent`: `nova::to_main` and `nova::return_main`.
 
