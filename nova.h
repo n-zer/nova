@@ -436,7 +436,7 @@ namespace nova {
 			}
 
 			queue_wrapper() = default;
-			std::atomic_bool is_main_queue_empty = true;
+			std::atomic_bool is_main_queue_empty{ true };
 			moodycamel_adaptor m_globalQueue;
 			moodycamel_adaptor m_mainQueue;
 
@@ -470,7 +470,7 @@ namespace nova {
 			}
 			worker_thread(worker_thread&&) noexcept = default;
 			worker_thread& operator=(worker_thread&&) noexcept = default;
-			static void worker_thread::job_loop() {
+			static void job_loop() {
 				while (running()) {
 					job j;
 					if (worker_thread::get_thread_id() == 0)
@@ -881,21 +881,66 @@ namespace nova {
 
 #pragma endregion
 
-	// Asynchronously invokes a set of Runnable objects.
-	// If ToMain is true, the Runnables will be invoked on the main thread.
-	template<bool ToMain = false, typename ... Runnables>
-	void push(Runnables&&... runnables) {
-		impl::push<ToMain, false>(std::forward<Runnables>(runnables)...);
-	}
+#pragma region thread control helpers
 
-	// Asynchronously invokes a set of Runnable objects. If the current job was invoked synchronously, it will not return until these Runnables return.
-	// If ToMain is true, the Runnables will be invoked on the main thread.
-	template<bool ToMain = false, typename ... Runnables>
-	void push_dependent(Runnables&&... runnables) {
-		impl::push<ToMain, true>(std::forward<Runnables>(runnables)...);
+	// Control that causes Runnables to be invoked on the main thread.
+	struct to_main {};
+	// Control that causes a synchronous invocation to return to the main thread
+	struct return_main {};
+	// Control that prevents a currently active synchronous invocation from returning until the invokees of the asynchronous invocation affected by the Control return
+	struct dependent {};
+
+	template<typename T, typename ... Ts>
+	struct includes_type;
+
+	template<typename T>
+	struct includes_type<T> {
+		static const bool value = false;
+	};
+
+	template<typename T, typename ... Ts>
+	struct includes_type<T, T, Ts...> {
+		static const bool value = true;
+	};
+
+	template<typename T, typename U, typename ... Ts>
+	struct includes_type<T, U, Ts...> {
+		static const bool value = false || includes_type<T, Ts...>::value;
+	};
+
+#pragma endregion
+
+	// Asynchronously invokes a set of Runnable objects.
+	// Accepts the following Controls:
+	// to_main - the Runnables will be invoked on the main thread
+	// dependent - if the current job was invoked synchronously, it will not return until the Runnables all return
+	template<typename ... Controls, typename ... Runnables>
+	void push(Runnables&&... runnables) {
+		impl::push<includes_type<to_main, Controls...>::value, includes_type<dependent, Controls...>::value>(std::forward<Runnables>(runnables)...);
 	}
 
 #pragma region call
+
+#pragma region helpers
+
+	template<bool test, typename T, typename U>
+	struct conditional_type;
+
+	template<typename T, typename U>
+	struct conditional_type<true, T, U> {
+		typedef T type;
+	};
+
+	template<typename T, typename U>
+	struct conditional_type<false, T, U> {
+		typedef U type;
+	};
+
+	template<bool test, typename T, typename U>
+	using conditional_type_t = conditional_type<test, T, U>;
+
+#pragma endregion
+
 	namespace impl{
 
 		template<bool ToMain, std::size_t N>
@@ -937,17 +982,17 @@ namespace nova {
 			return newFiber;
 		}
 
-		template<bool ToMain, bool FromMain, typename ... Params>
+		template<typename ... Controls, typename ... Params>
 		void call(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				nova::push<FromMain>(bind(&finish_called_job, currentFiber));
+				nova::push<conditional_type_t<includes_type<return_main, Controls...>::value, to_main, void>>(bind(&finish_called_job, currentFiber));
 			};
 
 			dependency_token dt(job{ &completionJob });
 			resources::call_token() = &dt;
 
-			call_push<ToMain>(dt, std::forward<Params>(params)...);
+			call_push<includes_type<to_main, Controls...>::value>(dt, std::forward<Params>(params)...);
 
 			SwitchToFiber(get_fresh_fiber());
 		}
@@ -957,20 +1002,21 @@ namespace nova {
 #pragma endregion
 
 	// Synchronously invokes a set of Runnable objects.
-	// If ToMain is true, the Runnables will be invoked on the main thread.
-	// If FromMain is true, this function will return on the main thread.
-	template<bool ToMain = false, bool FromMain = false, typename ... Runnables>
+	// Accepts the following Controls:
+	// to_main - the Runnables will be invoked on the main thread
+	// return_main - the call will return to the main thread
+	template<typename ... Controls, typename ... Runnables>
 	void call(Runnables&&... runnables) {
 		using namespace impl;
 		std::array<job, sizeof...(Runnables)-batch_count<Runnables...>::value> jobs;
 		std::vector<job> batchJobs;
 		pack_runnable<false>(jobs, batchJobs, std::forward<Runnables>(runnables)...);
-		impl::call<ToMain, FromMain>(std::move(jobs), std::move(batchJobs));
+		impl::call<Controls...>(std::move(jobs), std::move(batchJobs));
 	}
 
 	// Moves the current call stack to the main thread, then returns.
 	inline void switch_to_main() {
-		impl::call<false, true>();
+		impl::call<return_main>();
 	}
 
 	// Invokes a Callable object once for each value between start (inclusive) and end (exclusive), passing the value to each invocation.
@@ -1024,7 +1070,7 @@ namespace nova {
 		queue_wrapper::current_thread_data() = &td;
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		nova::call<true, true>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
+		nova::call<nova::to_main, nova::return_main>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
 
 		for (worker_thread & wt : threads)
 			push(bind(worker_thread::kill_worker));
