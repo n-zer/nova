@@ -16,11 +16,13 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 	* [`dependency_token`](#asynchronous-usage)
 	* [`kill_all_workers`](#asynchronous-usage)
 * [Semi-synchronous usage](#semi-synchronous-usage)
-	* [`push_dependent`](#semi-synchronous-usage)
+	* [`dependent`](#semi-synchronous-usage)
 * [Batching](#batching)
 	* [`bind_batch`](#batching)
 	* [`parallel_for`](#batching)
 * [Main thread invocation](#main-thread-invocation)
+	* [`to_main`](#main-thread-invocation)
+	* [`return_main`](#main-thread-invocation)
 	* [`switch_to_main`](#main-thread-invocation)
 * [Footnotes](#footnotes)
 * [API reference](https://github.com/narrill/nova/wiki/API-reference)
@@ -107,7 +109,7 @@ Because `InitialJob`, `NextJob`, and `JobWithParam` all have a copy of `dt`, `no
 Despite the syntax being heavier, asynchronous invocations are much more flexible than synchronous invocations; any dependency graph can be implemented with `nova::push` and `nova::dependency_token`s.
 
 ## Semi-synchronous usage
-#### [`push_dependent`](https://github.com/narrill/nova/wiki/API-reference#novapush_dependent) <sub>API reference</sub>
+#### [`dependent`](https://github.com/narrill/nova/wiki/API-reference#novadependent) <sub>API reference</sub>
 
 We can rewrite the previous example in a way that uses both a synchronous start *and* an asynchronous invocation, and doesn't need any `nova::dependency_token`s:
 
@@ -125,7 +127,7 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::push_dependent(NextJob, nova::bind(JobWithParam, 5));
+	nova::push<nova::dependent>(NextJob, nova::bind(JobWithParam, 5));
 }
 
 int main() {
@@ -133,7 +135,9 @@ int main() {
 }
 ```
 
-`nova::push_dependent` is asynchronous and will return immediately, but will extend a current synchronous invocation to its invokees. That is to say, because `InitialJob` was called synchronously by `nova::start_sync`, `nova::start_sync` will not return until `InitialJob`, `NextJob`, and `JobWithParam` have all returned.
+`nova::dependent` is a **control**, a type that can be passed to `nova::push` or `nova::call` as a template parameter to change their behavior. Although in `nova::dependent`'s case it can only be passed to `nova::push`; `nova::call` it won't do anything to `nova::call`.
+
+This particular control causes `nova::push`'s invokees to extend the duration of an active synchronous invocation. That is to say, because `InitialJob` was invoked with `nova::start_sync`, which is synchronous, `nova::start_sync` won't return until `InitialJob`, `NextJob`, and `JobWithParam` have all returned. If we hadn't added the control it would only have been waiting on `InitialJob`, and our invocations of `NextJob` and `JobWithParam` may have been ignored.
 
 `nova::call` is also synchronous, so the behavior would be the same if `main` was changed to the following:
 
@@ -210,28 +214,35 @@ will call the lambda 1000 times, but will only create as many jobs as the system
 However, if you can process multiple elements at once (e.g. SIMD) it may be more performant to use a batch function directly.
 
 ## Main thread invocation
-#### [`switch_to_main`](https://github.com/narrill/nova/wiki/API-reference#novaswitch_to_main) <sub>API reference</sub>
+#### [`to_main`](https://github.com/narrill/nova/wiki/API-reference#novasto_main), [`return_main`](https://github.com/narrill/nova/wiki/API-reference#novasreturn_main), [`switch_to_main`](https://github.com/narrill/nova/wiki/API-reference#novaswitch_to_main) <sub>API reference</sub>
 
-`nova::call`, `nova::push`, and `nova::push_dependent` all have a template parameter that controls whether their invocations will happen on the main thread, and `nova::call` has a second template parameter that controls whether the call should return on the main thread:
+There are two other **controls** in addition to `nova::dependent`: `nova::to_main` and `nova::return_main`.
+
+When passed to `nova::push` or `nova::call`, `nova::to_main` will cause the **runnable** objects to be invoked on the main thread. `nova::return_main` doesn't affect `nova::push`, but when passed to `nova::call` it will cause it to return to the main thread when its invokees return rather than returning on any available thread.
 
 ```C++
 // These will run their invokees on the main thread.
-nova::call<true>(...);
-nova::push<true>(...);
-nova::push_dependent<true>(...);
+nova::call<nova::to_main>(...);
+nova::push<nova::to_main>(...);
 
 // These may run their invokees on any thread.
-nova::call<false>(...);
-nova::push<false>(...);
-nova::push_dependent<false>(...);
+nova::call(...);
+nova::push(...);
 
-// These will always return to the main thread.
-nova::call<true, true>(...);
-nova::call<false, true>(...);
+// This will always return to the main thread.
+nova::call<nova::return_main>(...);
 
 // These may return to any thread (which may be different from the thread they were called on).
-nova::call<true, false>(...);
-nova::call<false, false>(...);
+nova::call(...);
+nova::call<nova::to_main>(...);
+
+// Controls may be added in any combination and any order:
+nova::call<nova::return_main, nova::to_main>(...);
+nova::call<nova::to_main, nova::return_main>(...);
+nova::push<nova::dependent, nova::to_main>(...);
+nova::push<nova::to_main, nova::dependent>(...);
+nova::push<nova::dependent>(...);
+// etc.
 ```
 
 `nova::switch_to_main` allows you to move to the main thread at any time:
