@@ -937,7 +937,7 @@ namespace nova {
 	};
 
 	template<bool test, typename T, typename U>
-	using conditional_type_t = conditional_type<test, T, U>;
+	using conditional_type_t = typename conditional_type<test, T, U>::type;
 
 #pragma endregion
 
