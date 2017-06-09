@@ -89,144 +89,84 @@ namespace nova {
 		};
 
 		class alignas(NOVA_CACHE_LINE_BYTES) job {
-		private:
-			struct JobData {
-				JobData() {}
-				JobData(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
-					: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
-				}
-				void(*m_runFunc)(void *) = &job::no_op;
-				void(*m_deleteFunc)(void*) = &job::no_op;
-				void * m_runnable = nullptr;
-				dependency_token m_callToken;
-			};
-
-			static const std::size_t PADDING_SIZE = NOVA_CACHE_LINE_BYTES - sizeof(JobData);
 		public:
-			job() {}
+			job() = default;
 
 			job(const job &) = delete;
-			job operator=(const job &) = delete;
+			job& operator=(const job &) = delete;
 
-			job(job && e) noexcept {
-				move(std::forward<job>(e));
+			job(job && other) noexcept {
+				// To-do
 			}
-
-			job& operator=(job && e) noexcept {
-				m_data.m_deleteFunc(m_data.m_runnable);
-				move(std::forward<job>(e));
+			job& operator=(job && other) noexcept {
+				// To-do
 				return *this;
 			}
 
-			~job() {
-				m_data.m_deleteFunc(m_data.m_runnable);
+			template<typename Runnable>
+			job(Runnable&& runnable) {
+				new (padding) job_derived<std::decay_t<Runnable>>(std::forward<std::decay_t<Runnable>>(runnable));
 			}
 
-			template<typename Runnable,
-				std::enable_if_t<
-					!std::is_same<std::decay_t<Runnable>, job>::value
-					&& !(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE)
-				, int> = 0
-			>
-			job(Runnable&& runnable)
-				: m_data(
-					&run_runnable<std::decay_t<Runnable>>,
-					&delete_runnable<std::decay_t<Runnable>>,
-					new std::decay_t<Runnable>(std::forward<Runnable>(runnable))
-				) {
+			template<typename Runnable>
+			job(Runnable* runnable) {
+				new (padding) job_derived_no_own<Runnable>(runnable);
 			}
 
-			template<typename Runnable,
-				std::enable_if_t<
-					!std::is_same<std::decay_t<Runnable>, job>::value
-					&& alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE
-				, int> = 0
-			>
-			job(Runnable&& runnable)
-				: m_data(
-					&run_runnable<std::decay_t<Runnable>>,
-					&destruct_runnable<std::decay_t<Runnable>>,
-					new (padding) std::decay_t<Runnable>(std::forward<Runnable>(runnable))
-				) {
+			void operator()() {
+				(*get_runnable_base())();
 			}
 
-			template<typename Runnable, 
-				std::enable_if_t<
-					!std::is_same<std::decay_t<Runnable>, job>::value
-					&& !std::is_same<std::decay_t<Runnable>, void(*)()>::value,
-				int> = 0
-			>
-			job(Runnable * runnable)
-				: m_data(
-					&run_runnable<std::decay_t<Runnable>>,
-					&no_op,
-					runnable
-				) {
+			dependency_token& get_dependency_token() {
+				return m_dt;
 			}
 
-			void operator () () const {
-				m_data.m_runFunc(m_data.m_runnable);
+			void set_dependency_token(dependency_token& dt) {
+				m_dt = dt;
 			}
-
-			void set_dependency_token(dependency_token & se) {
-				m_data.m_callToken = se;
-			}
-
-			void set_dependency_token(dependency_token && se) {
-				m_data.m_callToken = std::forward<dependency_token>(se);
-			}
-
-			dependency_token & get_dependency_token() {
-				return m_data.m_callToken;
-			}
-
 		private:
-			template <typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
-			static void run_runnable(void * runnable) {
-				(*(static_cast<Runnable*>(runnable)))();
-			}
+			class job_base {
+			public:
+				virtual ~job_base() {}
+				virtual void operator()() = 0;
+			};
 
-			template <typename Runnable, std::enable_if_t<is_shared<Runnable>::value, int> = 0>
-			static void run_runnable(void * runnable) {
-				(*(static_cast<Runnable*>(runnable)->get()))();
-			}
-
-			template <typename Runnable>
-			static void delete_runnable(void * runnable) {
-				delete static_cast<Runnable*>(runnable);
-			}
-
-			template <typename Runnable>
-			static void destruct_runnable(void * runnable) {
-				static_cast<Runnable*>(runnable)->~Runnable();
-			}
-
-			static void no_op(void * runnable) {};
-
-			bool is_small_object_optimized() {
-				char* rp = static_cast<char*>(m_data.m_runnable);
-				return rp >= std::begin(padding) && rp < std::end(padding);
-			}
-
-			void move(job && e) noexcept {
-				m_data.m_runFunc = e.m_data.m_runFunc;
-				m_data.m_deleteFunc = e.m_data.m_deleteFunc;
-				m_data.m_callToken = std::move(e.m_data.m_callToken);
-
-				if (e.is_small_object_optimized()) {
-					std::copy(std::begin(e.padding), std::end(e.padding), std::begin(padding));
-					m_data.m_runnable = padding;
+			template<typename T>
+			class job_derived : job_base {
+			public:
+				job_derived(T&& t) 
+					: runnable(new std::decay_t<T>(t)) {
 				}
-				else
-					m_data.m_runnable = e.m_data.m_runnable;
+				~job_derived() {
+					delete runnable;
+				}
+				void operator()() {
+					runnable->operator()();
+				}
+			private:
+				T* runnable;
+			};
 
-				e.m_data.m_runFunc = &job::no_op;
-				e.m_data.m_deleteFunc = &job::no_op;
-				e.m_data.m_runnable = nullptr;
+			template<typename T>
+			class job_derived_no_own {
+			public:
+				job_derived_no_own(T* t)
+					: runnable(t) {
+				}
+				~job_derived_no_own() = default;
+				void operator()() {
+					runnable->operator()();
+				}
+			private:
+				T* runnable;
+			};
+
+			job_base* get_runnable_base() {
+				return reinterpret_cast<job_base*>(padding);
 			}
 
-			char padding[PADDING_SIZE];
-			JobData m_data;
+			char padding[NOVA_CACHE_LINE_BYTES];
+			dependency_token m_dt;
 		};
 	}
 
