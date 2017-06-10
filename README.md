@@ -135,7 +135,7 @@ int main() {
 }
 ```
 
-`nova::dependent` is a **control**, a type that can be passed to `nova::push` or `nova::call` as a template parameter to change their behavior. Although in `nova::dependent`'s case it can only be passed to `nova::push`; `nova::call` it won't do anything to `nova::call`.
+`nova::dependent` is a **control**, a type that can be passed to `nova::push` or `nova::call` as a template parameter to change their behavior. Although in `nova::dependent`'s case it can only be passed to `nova::push`; it won't do anything to `nova::call`.
 
 This particular control causes `nova::push`'s invokees to extend the duration of an active synchronous invocation. That is to say, because `InitialJob` was invoked with `nova::start_sync`, which is synchronous, `nova::start_sync` won't return until `InitialJob`, `NextJob`, and `JobWithParam` have all returned. If we hadn't added the control it would only have been waiting on `InitialJob`, and our invocations of `NextJob` and `JobWithParam` may have been ignored.
 
