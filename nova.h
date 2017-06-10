@@ -40,7 +40,7 @@ namespace nova {
 
 		template<typename T>
 		void to_new_loc(void* loc, T&& obj) {
-			new (loc) T(std::forward<std::decay_t<T>>(obj));
+			new (loc) T(std::forward<T>(obj));
 		}
 
 		template<typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
@@ -211,8 +211,11 @@ namespace nova {
 			template<typename T>
 			class job_derived : job_empty {
 			public:
+				job_derived(T& t)
+					: runnable(t) {
+				}
 				job_derived(T&& t)
-					: runnable(new std::decay_t<T>(std::forward<std::decay_t<T>>(t))) {
+					: runnable(new std::decay_t<T>(std::forward<T>(t))) {
 				}
 				virtual ~job_derived() {
 					delete runnable;
@@ -236,8 +239,11 @@ namespace nova {
 			template<typename T>
 			class job_derived_smo : job_empty {
 			public:
+				job_derived_smo(T& t)
+					: runnable(t) {
+				}
 				job_derived_smo(T&& t)
-					: runnable(std::forward<std::decay_t<T>>(t)) {
+					: runnable(std::forward<T>(t)) {
 				}
 				job_derived_smo(const job_derived_smo& other) = delete;
 				job_derived_smo& operator=(const job_derived_smo&) = delete;
@@ -302,12 +308,12 @@ namespace nova {
 
 			template<typename Runnable, std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= paddingSize), int> = 0>
 			job(Runnable&& runnable) {
-				new (padding) job_derived<std::decay_t<Runnable>>(std::forward<std::decay_t<Runnable>>(runnable));
+				new (padding) job_derived<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 			}
 
 			template<typename Runnable, std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= paddingSize, int> = 0>
 			job(Runnable&& runnable) {
-				new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<std::decay_t<Runnable>>(runnable));
+				new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 			}
 
 			template<typename Runnable>
@@ -359,7 +365,7 @@ namespace nova {
 
 	template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int>>
 	dependency_token::dependency_token(Runnable&& runnable)
-		: m_token(std::make_shared<shared_token>(std::forward<std::decay_t<Runnable>>(runnable))) {
+		: m_token(std::make_shared<shared_token>(std::forward<Runnable>(runnable))) {
 	}
 
 #pragma endregion
