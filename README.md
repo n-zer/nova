@@ -2,7 +2,7 @@
 
 nova is a header-only C++14 job system for Windows. It spins up a thread pool which you can push function invocations to syncronously, asynchronously, or semi-synchronously.
 
-*Tested on MSVC2015 and Clang 4.0.0. No support for GCC yet, but I'm working on it.*
+*Tested on MSVC2015 and Clang 4.0.0.*
 
 ## Table of contents
 * [Getting started](#getting-started)
@@ -29,7 +29,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 
 ## Getting started
 
-Using the system is easy: download the headers, `#include nova.h`, and use all the stuff in the `nova` namespace.
+Using the system is easy: download the headers, `#include "nova.h"`, and use all the stuff in the `nova` namespace.
 
 ## Synchronous usage
 #### [`start_sync`](https://github.com/narrill/nova/wiki/API-reference#novastart_sync), [`call`](https://github.com/narrill/nova/wiki/API-reference#novacall), [`bind`](https://github.com/narrill/nova/wiki/API-reference#novabind) <sub>API reference</sub>
@@ -50,11 +50,11 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::call(NextJob, nova::bind(JobWithParam, 5));
+	nova::call(&NextJob, nova::bind(&JobWithParam, 5));
 }
 
 int main() {
-	nova::start_sync(InitialJob);
+	nova::start_sync(&InitialJob);
 }
 ```
 
@@ -64,7 +64,7 @@ We start with a call to `nova::start_sync`, which initializes the job system, en
 void InitialJob(int number, Foo foo) { ... }
 
 int main() {
-	nova::start_sync(InitialJob, 5, Foo());
+	nova::start_sync(&InitialJob, 5, Foo());
 }
 ```
 
@@ -92,11 +92,11 @@ void JobWithParam(int number, nova::dependency_token dt) {
 
 void InitialJob() {
 	nova::dependency_token dt(nova::kill_all_workers);
-	nova::push(nova::bind(NextJob, dt), nova::bind(JobWithParam, 5, dt));
+	nova::push(nova::bind(&NextJob, dt), nova::bind(&JobWithParam, 5, dt));
 }
 
 int main() {
-	nova::start_async(InitialJob);
+	nova::start_async(&InitialJob);
 }
 ```
 
@@ -127,15 +127,15 @@ void JobWithParam(int number) {
 }
 
 void InitialJob() {
-	nova::push<nova::dependent>(NextJob, nova::bind(JobWithParam, 5));
+	nova::push<nova::dependent>(&NextJob, nova::bind(&JobWithParam, 5));
 }
 
 int main() {
-	nova::start_sync(InitialJob);
+	nova::start_sync(&InitialJob);
 }
 ```
 
-`nova::dependent` is a **control**, a type that can be passed to `nova::push` or `nova::call` as a template parameter to change their behavior. Although in `nova::dependent`'s case it can only be passed to `nova::push`; `nova::call` it won't do anything to `nova::call`.
+`nova::dependent` is a **control**, a type that can be passed to `nova::push` or `nova::call` as a template parameter to change their behavior. Although in `nova::dependent`'s case it can only be passed to `nova::push`; it won't do anything to `nova::call`.
 
 This particular control causes `nova::push`'s invokees to extend the duration of an active synchronous invocation. That is to say, because `InitialJob` was invoked with `nova::start_sync`, which is synchronous, `nova::start_sync` won't return until `InitialJob`, `NextJob`, and `JobWithParam` have all returned. If we hadn't added the control it would only have been waiting on `InitialJob`, and our invocations of `NextJob` and `JobWithParam` may have been ignored.
 
@@ -144,7 +144,7 @@ This particular control causes `nova::push`'s invokees to extend the duration of
 ```C++
 int main() {
 	nova::start_sync([]() {
-		nova::call(InitialJob);
+		nova::call(&InitialJob);
 	});
 }
 ```
@@ -161,7 +161,7 @@ For example, if this code was run on a machine with eight logical cores
 ```C++
 void BatchJob(unsigned start, unsigned end){ ... }
 
-nova::push(nova::bind_batch(BatchJob, 0, 8000));
+nova::push(nova::bind_batch(&BatchJob, 0, 8000));
 ```
 
 it would be functionally equivalent to the following:
@@ -170,14 +170,14 @@ it would be functionally equivalent to the following:
 void BatchJob(unsigned start, unsigned end){ ... }
 
 nova::push(
-	nova::bind(BatchJob, 0, 1000),
-	nova::bind(BatchJob, 1000, 2000),
-	nova::bind(BatchJob, 2000, 3000),
-	nova::bind(BatchJob, 3000, 4000),
-	nova::bind(BatchJob, 4000, 5000),
-	nova::bind(BatchJob, 5000, 6000),
-	nova::bind(BatchJob, 6000, 7000),
-	nova::bind(BatchJob, 7000, 8000)
+	nova::bind(&BatchJob, 0, 1000),
+	nova::bind(&BatchJob, 1000, 2000),
+	nova::bind(&BatchJob, 2000, 3000),
+	nova::bind(&BatchJob, 3000, 4000),
+	nova::bind(&BatchJob, 4000, 5000),
+	nova::bind(&BatchJob, 5000, 6000),
+	nova::bind(&BatchJob, 6000, 7000),
+	nova::bind(&BatchJob, 7000, 8000)
 );
 ```
 
@@ -185,18 +185,18 @@ This will work with `nova::call` and `nova::push_dependent` as well, and it will
 
 ```C++
 nova::push(
-	nova::bind_batch(BatchJob, 0, 8000),
-	nova::bind(OtherJob)
+	nova::bind_batch(&BatchJob, 0, 8000),
+	nova::bind(&OtherJob)
 );
 nova::call(
-	nova::bind(OtherJob),
-	nova::bind_batch(BatchJob, 0, 8000),
-	nova::bind_batch(OtherBatchJob, 0, 100, Foo())
+	nova::bind(&OtherJob),
+	nova::bind_batch(&BatchJob, 0, 8000),
+	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
 );
 nova::push_dependent(
-	nova::bind(OtherJob),
-	nova::bind(BatchJob, 0, 8000),
-	nova::bind_batch(OtherBatchJob, 0, 100, Foo())
+	nova::bind(&OtherJob),
+	nova::bind(&BatchJob, 0, 8000),
+	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
 );
 etc.
 ```
@@ -270,13 +270,13 @@ void TestFunc(int& n){ n++; }
 
 int test = 0;
 
-nova::bind(TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
-std::bind(TestFunc, test)();
+nova::bind(&TestFunc, test)(); // TestFunc is passed a reference to a copy of test.
+std::bind(&TestFunc, test)();
 
 // test is still 0.
 
-nova::bind(TestFunc, std::ref(test))(); // TestFunc is passed a reference to test.
-std::bind(TestFunc, std::ref(test))();
+nova::bind(&TestFunc, std::ref(test))(); // TestFunc is passed a reference to test.
+std::bind(&TestFunc, std::ref(test))();
 
 // test is now 2.
 ```
