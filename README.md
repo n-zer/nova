@@ -2,7 +2,7 @@
 
 nova is a header-only C++14 job system for Windows. It spins up a thread pool which you can push function invocations to syncronously, asynchronously, or semi-synchronously.
 
-*Tested on MSVC2015 and Clang 4.0.0. No support for GCC yet, but I'm working on it.*
+*Tested on MSVC2015 and Clang 4.0.0.*
 
 ## Table of contents
 * [Getting started](#getting-started)
