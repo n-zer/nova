@@ -212,20 +212,24 @@ namespace nova {
 			class job_derived : job_empty {
 			public:
 				job_derived(T& t)
-					: runnable(t) {
+					: runnable(new T(t)) {
 				}
 				job_derived(T&& t)
 					: runnable(new std::decay_t<T>(std::forward<T>(t))) {
 				}
+
 				virtual ~job_derived() {
 					delete runnable;
 				}
+
 				job_derived(const job_derived& other) = delete;
 				job_derived& operator=(const job_derived&) = delete;
+
 				job_derived(job_derived&& other)
 					: runnable(other.runnable) {
 					other.runnable = nullptr;
 				}
+
 				virtual void move_to(void* loc) {
 					to_new_loc(loc, std::move(*this));
 				}
@@ -245,11 +249,14 @@ namespace nova {
 				job_derived_smo(T&& t)
 					: runnable(std::forward<T>(t)) {
 				}
+
 				job_derived_smo(const job_derived_smo& other) = delete;
 				job_derived_smo& operator=(const job_derived_smo&) = delete;
+
 				job_derived_smo(job_derived_smo&& other) 
 					: runnable(std::move(other.runnable)) {
 				}
+
 				virtual void move_to(void* loc) {
 					to_new_loc(loc, std::move(*this));
 				}
@@ -266,13 +273,17 @@ namespace nova {
 				job_derived_no_own(T* t)
 					: runnable(t) {
 				}
+
 				virtual ~job_derived_no_own() = default;
+
 				job_derived_no_own(const job_derived_no_own& other) = delete;
 				job_derived_no_own& operator=(const job_derived_no_own&) = delete;
+
 				job_derived_no_own(job_derived_no_own&& other) {
 					runnable = other.runnable;
 					other.runnable = nullptr;
 				}
+
 				virtual void move_to(void* loc) {
 					to_new_loc(loc, std::move(*this));
 				}
@@ -300,8 +311,7 @@ namespace nova {
 			}
 			job& operator=(job && other) noexcept {
 				get_runnable_base()->~job_base();
-				job_base* jbo = other.get_runnable_base();
-				jbo->move_to(padding);
+				other.get_runnable_base()->move_to(padding);
 				set_dependency_token(std::move(other.get_dependency_token()));
 				return *this;
 			}
