@@ -144,22 +144,6 @@ namespace nova {
 		struct integral_index_inner<false, std::tuple<T, Types...>> {
 			static const std::size_t value = 1 + integral_index<std::tuple<Types...>>::value;
 		};
-
-		template<bool test, typename T, typename U>
-		struct conditional_type;
-
-		template<typename T, typename U>
-		struct conditional_type<true, T, U> {
-			typedef T type;
-		};
-
-		template<typename T, typename U>
-		struct conditional_type<false, T, U> {
-			typedef U type;
-		};
-
-		template<bool test, typename T, typename U>
-		using conditional_type_t = typename conditional_type<test, T, U>::type;
 	}
 
 #pragma endregion
@@ -1016,7 +1000,7 @@ namespace nova {
 		void call(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				nova::push<conditional_type_t<includes_type<return_main, Controls...>::value, to_main, void>>(bind(&finish_called_job, currentFiber));
+				nova::push<std::conditional_t<includes_type<return_main, Controls...>::value, to_main, void>>(bind(&finish_called_job, currentFiber));
 			};
 
 			dependency_token dt(job{ &completionJob });
