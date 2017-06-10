@@ -22,11 +22,9 @@
 
 namespace nova {
 
-#pragma region job & dependency_token
-
 #pragma region helpers
 
-	namespace impl{
+	namespace impl {
 
 		template<typename T>
 		struct is_shared {
@@ -165,6 +163,8 @@ namespace nova {
 	}
 
 #pragma endregion
+
+#pragma region job & dependency_token
 
 	// Takes a Runnable and invokes it when all copies of the token are released or destroyed.
 	class dependency_token {
