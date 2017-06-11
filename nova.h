@@ -300,12 +300,12 @@ namespace nova {
 				return *this;
 			}
 
-			template<typename Runnable, std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= paddingSize), int> = 0>
+			template<typename Runnable, std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(std::decay_t<Runnable>) <= paddingSize), int> = 0>
 			job(Runnable&& runnable) {
 				new (padding) job_derived<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 			}
 
-			template<typename Runnable, std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= paddingSize, int> = 0>
+			template<typename Runnable, std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(std::decay_t<Runnable>) <= paddingSize, int> = 0>
 			job(Runnable&& runnable) {
 				new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 			}
