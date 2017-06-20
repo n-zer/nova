@@ -58,7 +58,7 @@ int main() {
 }
 ```
 
-We start with a call to `nova::start_sync`, which initializes the job system, enters the first job (represented here by `InitialJob`), and returns when that job finishes. The first job can be any **callable** object (e.g. function pointers, member function pointers, lambdas, classes that define `operator()`, etc.), and if it needs any parameters you can add them like so:
+We start with a call to `nova::start_sync`, which initializes the job system, enters the first job (represented here by `InitialJob`), and returns when that job finishes. The first job can be any **callable** object (e.g. function pointers, member function pointers, lambdas, functors, etc.), and if it needs any parameters you can add them like so:
 
 ```C++
 void InitialJob(int number, Foo foo) { ... }
