@@ -181,7 +181,7 @@ nova::push(
 );
 ```
 
-This will work with `nova::call` and `nova::push_dependent` as well, and it will work with any combination of **batch** and non-**batch runnables**. The following are all valid:
+This will work with `nova::call` as well, and it will work with any combination of **batch** and non-**batch runnables**. The following are all valid:
 
 ```C++
 nova::push(
@@ -191,11 +191,6 @@ nova::push(
 nova::call(
 	nova::bind(&OtherJob),
 	nova::bind_batch(&BatchJob, 0, 8000),
-	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
-);
-nova::push_dependent(
-	nova::bind(&OtherJob),
-	nova::bind(&BatchJob, 0, 8000),
 	nova::bind_batch(&OtherBatchJob, 0, 100, Foo())
 );
 etc.
