@@ -22,11 +22,9 @@
 
 namespace nova {
 
-#pragma region job & dependency_token
-
 #pragma region helpers
 
-	namespace impl{
+	namespace impl {
 
 		template<typename T>
 		struct is_shared {
@@ -37,9 +35,120 @@ namespace nova {
 		struct is_shared<std::shared_ptr<T>> {
 			static const bool value = true;
 		};
+
+		template<typename T>
+		void to_new_loc(void* loc, T&& obj) {
+			new (loc) T(std::forward<T>(obj));
+		}
+
+		template<typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
+		static void run_runnable(Runnable* runnable) {
+			(*runnable)();
+		}
+
+		template<typename Runnable, std::enable_if_t<is_shared<Runnable>::value, int> = 0>
+		static void run_runnable(Runnable* runnable) {
+			(*runnable->get())();
+		}
+
+		template<typename T>
+		constexpr std::size_t ceil(T num)
+		{
+			return (static_cast<T>(static_cast<std::size_t>(num)) == num)
+				? static_cast<std::size_t>(num)
+				: static_cast<std::size_t>(num) + ((num > 0) ? 1 : 0);
+		}
+
+		template<typename T>
+		class raii_ptr {
+		public:
+			raii_ptr(std::decay_t<T> *& ptr, std::decay_t<T> * val)
+				: m_ptr(ptr) {
+				m_ptr = val;
+			}
+			~raii_ptr() {
+				m_ptr = nullptr;
+			}
+		private:
+			T *& m_ptr;
+		};
+
+		namespace detail {
+			template <class F, class... Args>
+			inline auto INVOKE(F&& f, Args&&... args) ->
+				decltype(std::forward<F>(f)(std::forward<Args>(args)...)) {
+				return std::forward<F>(f)(std::forward<Args>(args)...);
+			}
+
+			template <class Base, class T, class Derived>
+			inline auto INVOKE(T Base::*pmd, Derived&& ref) ->
+				decltype(std::forward<Derived>(ref).*pmd) {
+				return std::forward<Derived>(ref).*pmd;
+			}
+
+			template <class PMD, class Pointer>
+			inline auto INVOKE(PMD pmd, Pointer&& ptr) ->
+				decltype((*std::forward<Pointer>(ptr)).*pmd) {
+				return (*std::forward<Pointer>(ptr)).*pmd;
+			}
+
+			template <class Base, class T, class Derived, class... Args>
+			inline auto INVOKE(T Base::*pmf, Derived&& ref, Args&&... args) ->
+				decltype((std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...)) {
+				return (std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...);
+			}
+
+			template <class PMF, class Pointer, class... Args>
+			inline auto INVOKE(PMF pmf, Pointer&& ptr, Args&&... args) ->
+				decltype(((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...)) {
+				return ((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...);
+			}
+		} // namespace detail
+
+		template< class F, class... ArgTypes>
+		decltype(auto) invoke(F&& f, ArgTypes&&... args) {
+			return detail::INVOKE(std::forward<F>(f), std::forward<ArgTypes>(args)...);
+		}
+
+		namespace detail {
+			template <class F, class Tuple, std::size_t... I>
+			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
+				return impl::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+			}
+		}  // namespace detail
+
+		template <class F, class Tuple>
+		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
+			return detail::apply_impl(
+				std::forward<F>(f), std::forward<Tuple>(t),
+				std::make_index_sequence<std::tuple_size<std::decay_t<Tuple>>::value>{});
+		}
+
+		template<class Tuple>
+		struct integral_index;
+
+		template<bool Val, class Tuple>
+		struct integral_index_inner;
+
+		template<class T, class ... Types>
+		struct integral_index<std::tuple<T, Types...>> {
+			static const std::size_t value = integral_index_inner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
+		};
+
+		template<typename Tuple>
+		struct integral_index_inner<true, Tuple> {
+			static const std::size_t value = 0;
+		};
+
+		template<typename T, typename ... Types>
+		struct integral_index_inner<false, std::tuple<T, Types...>> {
+			static const std::size_t value = 1 + integral_index<std::tuple<Types...>>::value;
+		};
 	}
 
 #pragma endregion
+
+#pragma region job & dependency_token
 
 	// Takes a Runnable and invokes it when all copies of the token are released or destroyed.
 	class dependency_token {
@@ -66,167 +175,168 @@ namespace nova {
 
 	namespace impl{
 
-		template<typename T>
-		constexpr std::size_t ceil(T num)
-		{
-			return (static_cast<T>(static_cast<std::size_t>(num)) == num)
-				? static_cast<std::size_t>(num)
-				: static_cast<std::size_t>(num) + ((num > 0) ? 1 : 0);
-		}
-
-		template<typename T>
-		class raii_ptr {
-		public:
-			raii_ptr(std::decay_t<T> *& ptr, std::decay_t<T> * val)
-				: m_ptr(ptr) {
-				m_ptr = val;
-			}
-			~raii_ptr() {
-				m_ptr = nullptr;
-			}
-		private:
-			T *& m_ptr;
-		};
-
 		class alignas(NOVA_CACHE_LINE_BYTES) job {
 		private:
-			struct JobData {
-				JobData() {}
-				JobData(void(*runFunc)(void*), void(*deleteFunc)(void*), void * runnable)
-					: m_runFunc(runFunc), m_deleteFunc(deleteFunc), m_runnable(runnable) {
-				}
-				void(*m_runFunc)(void *) = &job::no_op;
-				void(*m_deleteFunc)(void*) = &job::no_op;
-				void * m_runnable = nullptr;
-				dependency_token m_callToken;
+			static const std::size_t paddingSize = NOVA_CACHE_LINE_BYTES - sizeof(dependency_token);
+
+			class job_base {
+			public:
+				virtual ~job_base() {}
+				virtual void move_to(void*) = 0;
+				virtual void operator()() = 0;
 			};
 
-			static const std::size_t PADDING_SIZE = NOVA_CACHE_LINE_BYTES - sizeof(JobData);
+			class job_empty : job_base {
+			public:
+				virtual void move_to(void* loc) {}
+				virtual void operator()() {}
+			};
+
+			template<typename T>
+			class job_derived : job_empty {
+			public:
+				job_derived(T& t)
+					: runnable(new T(t)) {
+				}
+				job_derived(T&& t)
+					: runnable(new std::decay_t<T>(std::forward<T>(t))) {
+				}
+
+				virtual ~job_derived() {
+					delete runnable;
+				}
+
+				job_derived(const job_derived& other) = delete;
+				job_derived& operator=(const job_derived&) = delete;
+
+				job_derived(job_derived&& other)
+					: runnable(other.runnable) {
+					other.runnable = nullptr;
+				}
+
+				virtual void move_to(void* loc) {
+					to_new_loc(loc, std::move(*this));
+				}
+				virtual void operator()() {
+					run_runnable(runnable);
+				}
+			private:
+				T* runnable;
+			};
+
+			template<typename T>
+			class job_derived_smo : job_empty {
+			public:
+				job_derived_smo(T& t)
+					: runnable(t) {
+				}
+				job_derived_smo(T&& t)
+					: runnable(std::forward<T>(t)) {
+				}
+
+				job_derived_smo(const job_derived_smo& other) = delete;
+				job_derived_smo& operator=(const job_derived_smo&) = delete;
+
+				job_derived_smo(job_derived_smo&& other) 
+					: runnable(std::move(other.runnable)) {
+				}
+
+				virtual void move_to(void* loc) {
+					to_new_loc(loc, std::move(*this));
+				}
+				virtual void operator()() {
+					run_runnable(&runnable);
+				}
+			private:
+				T runnable;
+			};
+
+			template<typename T>
+			class job_derived_no_own : job_empty {
+			public:
+				job_derived_no_own(T* t)
+					: runnable(t) {
+				}
+
+				virtual ~job_derived_no_own() = default;
+
+				job_derived_no_own(const job_derived_no_own& other) = delete;
+				job_derived_no_own& operator=(const job_derived_no_own&) = delete;
+
+				job_derived_no_own(job_derived_no_own&& other) {
+					runnable = other.runnable;
+					other.runnable = nullptr;
+				}
+
+				virtual void move_to(void* loc) {
+					to_new_loc(loc, std::move(*this));
+				}
+				virtual void operator()() {
+					run_runnable(runnable);
+				}
+			private:
+				T* runnable;
+			};
 		public:
-			job() {}
-
-			job(const job &) = delete;
-			job operator=(const job &) = delete;
-
-			job(job && e) noexcept {
-				move(std::forward<job>(e));
-			}
-
-			job& operator=(job && e) noexcept {
-				m_data.m_deleteFunc(m_data.m_runnable);
-				move(std::forward<job>(e));
-				return *this;
+			job() {
+				new (padding) job_empty();
 			}
 
 			~job() {
-				m_data.m_deleteFunc(m_data.m_runnable);
+				get_runnable_base()->~job_base();
 			}
 
-			template<typename Runnable,
-				std::enable_if_t<
-					!std::is_same<std::decay_t<Runnable>, job>::value
-					&& !(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE)
-				, int> = 0
-			>
-			job(Runnable&& runnable)
-				: m_data(
-					&run_runnable<std::decay_t<Runnable>>,
-					&delete_runnable<std::decay_t<Runnable>>,
-					new std::decay_t<Runnable>(std::forward<Runnable>(runnable))
-				) {
+			job(const job &) = delete;
+			job& operator=(const job &) = delete;
+
+			job(job && other) noexcept {
+				other.get_runnable_base()->move_to(padding);
+				set_dependency_token(std::move(other.get_dependency_token()));
+			}
+			job& operator=(job && other) noexcept {
+				get_runnable_base()->~job_base();
+				other.get_runnable_base()->move_to(padding);
+				set_dependency_token(std::move(other.get_dependency_token()));
+				return *this;
 			}
 
-			template<typename Runnable,
-				std::enable_if_t<
-					!std::is_same<std::decay_t<Runnable>, job>::value
-					&& alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(Runnable) <= PADDING_SIZE
-				, int> = 0
-			>
-			job(Runnable&& runnable)
-				: m_data(
-					&run_runnable<std::decay_t<Runnable>>,
-					&destruct_runnable<std::decay_t<Runnable>>,
-					new (padding) std::decay_t<Runnable>(std::forward<Runnable>(runnable))
-				) {
+			template<typename Runnable, std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(std::decay_t<Runnable>) <= paddingSize), int> = 0>
+			job(Runnable&& runnable) {
+				new (padding) job_derived<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 			}
 
-			template<typename Runnable, 
-				std::enable_if_t<
-					!std::is_same<std::decay_t<Runnable>, job>::value
-					&& !std::is_same<std::decay_t<Runnable>, void(*)()>::value,
-				int> = 0
-			>
-			job(Runnable * runnable)
-				: m_data(
-					&run_runnable<std::decay_t<Runnable>>,
-					&no_op,
-					runnable
-				) {
+			template<typename Runnable, std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(std::decay_t<Runnable>) <= paddingSize, int> = 0>
+			job(Runnable&& runnable) {
+				new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 			}
 
-			void operator () () const {
-				m_data.m_runFunc(m_data.m_runnable);
+			template<typename Runnable>
+			job(Runnable* runnable) {
+				new (padding) job_derived_no_own<Runnable>(runnable);
 			}
 
-			void set_dependency_token(dependency_token & se) {
-				m_data.m_callToken = se;
+			void operator()() {
+				(*get_runnable_base())();
 			}
 
-			void set_dependency_token(dependency_token && se) {
-				m_data.m_callToken = std::forward<dependency_token>(se);
+			dependency_token& get_dependency_token() {
+				return m_dt;
 			}
 
-			dependency_token & get_dependency_token() {
-				return m_data.m_callToken;
+			void set_dependency_token(dependency_token& dt) {
+				m_dt = dt;
 			}
 
+			void set_dependency_token(dependency_token&& dt) {
+				m_dt = std::forward<dependency_token>(dt);
+			}
 		private:
-			template <typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
-			static void run_runnable(void * runnable) {
-				(*(static_cast<Runnable*>(runnable)))();
+			job_base* get_runnable_base() {
+				return reinterpret_cast<job_base*>(padding);
 			}
 
-			template <typename Runnable, std::enable_if_t<is_shared<Runnable>::value, int> = 0>
-			static void run_runnable(void * runnable) {
-				(*(static_cast<Runnable*>(runnable)->get()))();
-			}
-
-			template <typename Runnable>
-			static void delete_runnable(void * runnable) {
-				delete static_cast<Runnable*>(runnable);
-			}
-
-			template <typename Runnable>
-			static void destruct_runnable(void * runnable) {
-				static_cast<Runnable*>(runnable)->~Runnable();
-			}
-
-			static void no_op(void * runnable) {};
-
-			bool is_small_object_optimized() {
-				char* rp = static_cast<char*>(m_data.m_runnable);
-				return rp >= std::begin(padding) && rp < std::end(padding);
-			}
-
-			void move(job && e) noexcept {
-				m_data.m_runFunc = e.m_data.m_runFunc;
-				m_data.m_deleteFunc = e.m_data.m_deleteFunc;
-				m_data.m_callToken = std::move(e.m_data.m_callToken);
-
-				if (e.is_small_object_optimized()) {
-					std::copy(std::begin(e.padding), std::end(e.padding), std::begin(padding));
-					m_data.m_runnable = padding;
-				}
-				else
-					m_data.m_runnable = e.m_data.m_runnable;
-
-				e.m_data.m_runFunc = &job::no_op;
-				e.m_data.m_deleteFunc = &job::no_op;
-				e.m_data.m_runnable = nullptr;
-			}
-
-			char padding[PADDING_SIZE];
-			JobData m_data;
+			char padding[paddingSize];
+			dependency_token m_dt;
 		};
 	}
 
@@ -249,7 +359,7 @@ namespace nova {
 
 	template<typename Runnable, std::enable_if_t<!std::is_same<std::decay_t<Runnable>, dependency_token>::value, int>>
 	dependency_token::dependency_token(Runnable&& runnable)
-		: m_token(std::make_shared<shared_token>(std::forward<std::decay_t<Runnable>>(runnable))) {
+		: m_token(std::make_shared<shared_token>(std::forward<Runnable>(runnable))) {
 	}
 
 #pragma endregion
@@ -546,82 +656,6 @@ namespace nova {
 #pragma region function & batch_function
 
 	namespace impl {
-
-#pragma region helpers
-
-		namespace detail {
-			template <class F, class... Args>
-			inline auto INVOKE(F&& f, Args&&... args) ->
-				decltype(std::forward<F>(f)(std::forward<Args>(args)...)) {
-				return std::forward<F>(f)(std::forward<Args>(args)...);
-			}
-
-			template <class Base, class T, class Derived>
-			inline auto INVOKE(T Base::*pmd, Derived&& ref) ->
-				decltype(std::forward<Derived>(ref).*pmd) {
-				return std::forward<Derived>(ref).*pmd;
-			}
-
-			template <class PMD, class Pointer>
-			inline auto INVOKE(PMD pmd, Pointer&& ptr) ->
-				decltype((*std::forward<Pointer>(ptr)).*pmd) {
-				return (*std::forward<Pointer>(ptr)).*pmd;
-			}
-
-			template <class Base, class T, class Derived, class... Args>
-			inline auto INVOKE(T Base::*pmf, Derived&& ref, Args&&... args) ->
-				decltype((std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...)) {
-				return (std::forward<Derived>(ref).*pmf)(std::forward<Args>(args)...);
-			}
-
-			template <class PMF, class Pointer, class... Args>
-			inline auto INVOKE(PMF pmf, Pointer&& ptr, Args&&... args) ->
-				decltype(((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...)) {
-				return ((*std::forward<Pointer>(ptr)).*pmf)(std::forward<Args>(args)...);
-			}
-		} // namespace detail
-
-		template< class F, class... ArgTypes>
-		decltype(auto) invoke(F&& f, ArgTypes&&... args) {
-			return detail::INVOKE(std::forward<F>(f), std::forward<ArgTypes>(args)...);
-		}
-
-		namespace detail {
-			template <class F, class Tuple, std::size_t... I>
-			constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>) {
-				return impl::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
-			}
-		}  // namespace detail
-
-		template <class F, class Tuple>
-		constexpr decltype(auto) apply(F &&f, Tuple &&t) {
-			return detail::apply_impl(
-				std::forward<F>(f), std::forward<Tuple>(t),
-				std::make_index_sequence<std::tuple_size<std::decay_t<Tuple>>::value>{});
-		}
-
-		template<class Tuple>
-		struct integral_index;
-
-		template<bool Val, class Tuple>
-		struct integral_index_inner;
-
-		template<class T, class ... Types>
-		struct integral_index<std::tuple<T, Types...>> {
-			static const std::size_t value = integral_index_inner<std::is_integral<T>::value, std::tuple<T, Types...>>::value;
-		};
-
-		template<typename Tuple>
-		struct integral_index_inner<true, Tuple> {
-			static const std::size_t value = 0;
-		};
-
-		template<typename T, typename ... Types>
-		struct integral_index_inner<false, std::tuple<T, Types...>> {
-			static const std::size_t value = 1 + integral_index<std::tuple<Types...>>::value;
-		};
-
-#pragma endregion
 
 		template<typename Callable, typename ... Params>
 		class batch_function;
@@ -933,26 +967,6 @@ namespace nova {
 
 #pragma region call
 
-#pragma region helpers
-
-	template<bool test, typename T, typename U>
-	struct conditional_type;
-
-	template<typename T, typename U>
-	struct conditional_type<true, T, U> {
-		typedef T type;
-	};
-
-	template<typename T, typename U>
-	struct conditional_type<false, T, U> {
-		typedef U type;
-	};
-
-	template<bool test, typename T, typename U>
-	using conditional_type_t = typename conditional_type<test, T, U>::type;
-
-#pragma endregion
-
 	namespace impl{
 
 		template<bool ToMain, std::size_t N>
@@ -998,7 +1012,7 @@ namespace nova {
 		void call(Params&&... params) {
 			PVOID currentFiber = GetCurrentFiber();
 			auto completionJob = [=]() {
-				nova::push<conditional_type_t<includes_type<return_main, Controls...>::value, to_main, void>>(bind(&finish_called_job, currentFiber));
+				nova::push<std::conditional_t<includes_type<return_main, Controls...>::value, to_main, void>>(bind(&finish_called_job, currentFiber));
 			};
 
 			dependency_token dt(job{ &completionJob });
