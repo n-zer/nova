@@ -407,7 +407,8 @@ namespace nova {
 			CRITICAL_SECTION & m_cs;
 		};
 
-		struct critical_wrapper {
+		class critical_wrapper {
+		public:
 			critical_wrapper() {
 				InitializeCriticalSection(&cs);
 			}
@@ -416,13 +417,24 @@ namespace nova {
 				DeleteCriticalSection(&cs);
 			}
 
+			operator CRITICAL_SECTION&() {
+				return cs;
+			}
+
+		private:
 			CRITICAL_SECTION cs;
 		}; 
 
-		struct condition_wrapper {
+		class condition_wrapper {
+		public:
 			condition_wrapper() {
 				InitializeConditionVariable(&cv);
 			}
+
+			operator CONDITION_VARIABLE&() {
+				return cv;
+			}
+		private:
 
 			CONDITION_VARIABLE cv;
 		};
@@ -553,16 +565,16 @@ namespace nova {
 			// Meyers singletons
 			static CONDITION_VARIABLE & global_condition_variable() {
 				static condition_wrapper cw;
-				return cw.cv;
+				return cw;
 			}
 			static CONDITION_VARIABLE & main_condition_variable() {
 				static condition_wrapper cw;
-				return cw.cv;
+				return cw;
 			}
 			static CRITICAL_SECTION & dummy_critical_section() {
 				static thread_local critical_wrapper cs;
-				static thread_local critical_lock cl(cs.cs);
-				return cs.cs;
+				static thread_local critical_lock cl(cs);
+				return cs;
 			}
 		};
 	}
@@ -607,7 +619,7 @@ namespace nova {
 		private:
 			void init_thread() {
 				{
-					critical_lock cl(init_lock().cs);
+					critical_lock cl(init_lock());
 					thread_id() = thread_count();
 					thread_count()++;
 				}
