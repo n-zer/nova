@@ -729,8 +729,11 @@ namespace nova {
 		public:
 			template<typename _Callable, typename ... _Params, std::enable_if_t<!std::is_same<std::decay_t<_Callable>, batch_function<Callable, Params...>>::value, int> = 0>
 			batch_function(_Callable&& callable, _Params&&... args)
-				: function<Callable, Params...>(std::forward<_Callable>(callable), std::forward<_Params>(args)...), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
+				: function<Callable, Params...>(std::forward<_Callable>(callable), std::forward<_Params>(args)...), m_currentSection(0), m_sections((std::min)(static_cast<std::size_t>(end() - start()), impl::worker_thread::get_thread_count())) {
 			}
+
+			batch_function(batch_function&& other) 
+				: m_currentSection(0), m_sections(other.m_sections), function<Callable, Params...>(std::forward<function<Callable, Params...>>(static_cast<typename batch_function::template function<Callable, Params...>&&>(other))) {}
 
 			/*explicit BatchJob(SimpleJob<Callable, Params...> & sj)
 			: SimpleJob<Callable, Params...>(sj), m_sections((std::min)(End() - Start(), static_cast<indexType>(internal::WorkerThread::GetThreadCount()))) {
@@ -761,7 +764,7 @@ namespace nova {
 			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
 			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
 			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
-			std::atomic<std::size_t> m_currentSection = 0;
+			std::atomic<std::size_t> m_currentSection;
 			std::size_t m_sections;
 
 			start_index_t& start() {
