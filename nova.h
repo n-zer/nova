@@ -41,14 +41,12 @@ namespace nova {
 			new (loc) T(std::forward<T>(obj));
 		}
 
-		template<typename Runnable, std::enable_if_t<!is_shared<Runnable>::value, int> = 0>
+		template<typename Runnable>
 		static void run_runnable(Runnable* runnable) {
-			(*runnable)();
-		}
-
-		template<typename Runnable, std::enable_if_t<is_shared<Runnable>::value, int> = 0>
-		static void run_runnable(Runnable* runnable) {
-			(*runnable->get())();
+			if constexpr(is_shared<Runnable>::value)
+				(*runnable->get())();
+			else
+				(*runnable)();
 		}
 
 		template<typename T>
@@ -225,19 +223,19 @@ namespace nova {
 			};
 
 			template<typename T>
-			class job_derived_smo : job_empty {
+			class job_derived_soo : job_empty {
 			public:
-				job_derived_smo(T& t)
+				job_derived_soo(T& t)
 					: runnable(t) {
 				}
-				job_derived_smo(T&& t)
+				job_derived_soo(T&& t)
 					: runnable(std::forward<T>(t)) {
 				}
 
-				job_derived_smo(const job_derived_smo& other) = delete;
-				job_derived_smo& operator=(const job_derived_smo&) = delete;
+				job_derived_soo(const job_derived_soo& other) = delete;
+				job_derived_soo& operator=(const job_derived_soo&) = delete;
 
-				job_derived_smo(job_derived_smo&& other) 
+				job_derived_soo(job_derived_soo&& other) 
 					: runnable(std::move(other.runnable)) {
 				}
 
@@ -302,8 +300,8 @@ namespace nova {
 
 			template<typename Runnable>
 			job(Runnable&& runnable) {
-				if constexpr(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(job_derived_smo<std::decay_t<Runnable>>) <= paddingSize) {
-					new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
+				if constexpr(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(job_derived_soo<std::decay_t<Runnable>>) <= paddingSize) {
+					new (padding) job_derived_soo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
 				}
 				else {
 					new (padding) job_derived<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
@@ -528,32 +526,32 @@ namespace nova {
 				}
 			}
 
-			template<bool ToMain, std::enable_if_t<!ToMain, int> = 0>
+			template<bool ToMain>
 			void push(queue_item_t&& item) {
-				m_globalQueue.push(current_thread_data()->globalData, std::forward<queue_item_t>(item));
-				WakeConditionVariable(&global_condition_variable());
-				WakeConditionVariable(&main_condition_variable());
+				if constexpr(ToMain) {
+					m_mainQueue.push(current_thread_data()->mainData, std::forward<queue_item_t>(item));
+					is_main_queue_empty.store(false, std::memory_order_relaxed);
+					WakeConditionVariable(&main_condition_variable());
+				}
+				else {
+					m_globalQueue.push(current_thread_data()->globalData, std::forward<queue_item_t>(item));
+					WakeConditionVariable(&global_condition_variable());
+					WakeConditionVariable(&main_condition_variable());
+				}
 			}
 
-			template<bool ToMain, typename Collection, std::enable_if_t<!ToMain, int> = 0>
+			template<bool ToMain, typename Collection>
 			void push(Collection && items) {
-				m_globalQueue.push(current_thread_data()->globalData, std::forward<decltype(items)>(items));
-				WakeAllConditionVariable(&global_condition_variable());
-				WakeConditionVariable(&main_condition_variable());
-			}
-
-			template<bool ToMain, std::enable_if_t<ToMain, int> = 0>
-			void push(queue_item_t&& item) {
-				m_mainQueue.push(current_thread_data()->mainData, std::forward<queue_item_t>(item));
-				is_main_queue_empty.store(false, std::memory_order_relaxed);
-				WakeConditionVariable(&main_condition_variable());
-			}
-
-			template<bool ToMain, typename Collection, std::enable_if_t<ToMain, int> = 0>
-			void push(Collection && items) {
-				m_mainQueue.push(current_thread_data()->mainData, std::forward<decltype(items)>(items));
-				is_main_queue_empty.store(false, std::memory_order_relaxed);
-				WakeConditionVariable(&main_condition_variable());
+				if constexpr(ToMain) {
+					m_mainQueue.push(current_thread_data()->mainData, std::forward<decltype(items)>(items));
+					is_main_queue_empty.store(false, std::memory_order_relaxed);
+					WakeConditionVariable(&main_condition_variable());
+				}
+				else {
+					m_globalQueue.push(current_thread_data()->globalData, std::forward<decltype(items)>(items));
+					WakeAllConditionVariable(&global_condition_variable());
+					WakeConditionVariable(&main_condition_variable());
+				}
 			}
 
 			thread_data make_thread_data() {
@@ -838,29 +836,25 @@ namespace nova {
 	namespace impl {
 
 		//Loads a Runnable into an envelope and pushes it to the given vector. Allocates.
-		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<Alloc, int> = 0>
+		template<bool Alloc, typename Runnable, std::size_t N>
 		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable&& runnable) {
-			jobs[index++] = std::move(job{ std::forward<Runnable>(runnable) });
-		}
-
-		//Loads a Runnable into an envelope and pushes it to the given vector
-		template<bool Alloc, typename Runnable, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, Runnable&& runnable) {
-			jobs[index++] = { &runnable };
+			if constexpr(Alloc)
+				jobs[index++] = std::move(job{ std::forward<Runnable>(runnable) });
+			else
+				jobs[index++] = { &runnable };
 		}
 
 		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector Allocates.
-		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<Alloc, int> = 0>
+		template<bool Alloc, typename Callable, typename ... Params, std::size_t N>
 		static void pack_runnable(std::array<job, N> & jobs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
-			std::vector<job> splitEnvs = split_batch_function(std::forward<decltype(bf)>(bf));
-			batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
-		}
-
-		//Special overload for batch jobs - splits into envelopes and inserts them into the given vector
-		template<bool Alloc, typename Callable, typename ... Params, std::size_t N, std::enable_if_t<!Alloc, int> = 0>
-		static void pack_runnable(std::array<job, N> & envs, std::size_t & index, std::vector<job> & batchJobs, batch_function<Callable, Params...> && bf) {
-			std::vector<job> splitEnvs = split_batch_function_no_alloc(bf);
-			batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
+			if constexpr(Alloc) {
+				std::vector<job> splitEnvs = split_batch_function(std::forward<decltype(bf)>(bf));
+				batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
+			}
+			else {
+				std::vector<job> splitEnvs = split_batch_function_no_alloc(bf);
+				batchJobs.insert(batchJobs.end(), std::make_move_iterator(splitEnvs.begin()), std::make_move_iterator(splitEnvs.end()));
+			}
 		}
 
 		//Breaks a Runnable off the parameter pack and recurses
@@ -936,14 +930,12 @@ namespace nova {
 			push<ToMain>(std::forward<decltype(jobs)>(jobs));
 		}
 
-		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<Dependent, int> = 0>
+		template<bool ToMain, bool Dependent, typename Collection>
 		void push_picker(Collection && collection) {
-			impl::push<ToMain>(*resources::dependent_token(), std::forward<Collection>(collection));
-		}
-
-		template<bool ToMain, bool Dependent, typename Collection, std::enable_if_t<!Dependent, int> = 0>
-		void push_picker(Collection && collection) {
-			impl::push<ToMain>(std::forward<Collection>(collection));
+			if constexpr(Dependent)
+				impl::push<ToMain>(*resources::dependent_token(), std::forward<Collection>(collection));
+			else
+				impl::push<ToMain>(std::forward<Collection>(collection));
 		}
 
 		//Queues a set of Runnables
