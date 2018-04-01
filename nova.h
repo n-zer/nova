@@ -598,6 +598,19 @@ namespace nova {
 #pragma region worker_thread
 
 	namespace impl {
+		inline LPVOID get_fresh_fiber(LPFIBER_START_ROUTINE startFunc) {
+			LPVOID newFiber;
+
+			if (resources::available_fibers().size() > 0) {
+				newFiber = resources::available_fibers()[resources::available_fibers().size() - 1];
+				resources::available_fibers().pop_back();
+			}
+			else
+				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, startFunc, nullptr);
+
+			return newFiber;
+		}
+
 		class worker_thread {
 		public:
 			worker_thread()
@@ -606,8 +619,15 @@ namespace nova {
 			}
 			worker_thread(worker_thread&&) noexcept = default;
 			worker_thread& operator=(worker_thread&&) noexcept = default;
+			
+			static std::size_t get_thread_id() {
+				return thread_id();
+			}
+			static std::size_t get_thread_count() {
+				return thread_count();
+			}
 			static void job_loop() {
-				while (running()) {
+				while (worker_thread::is_running()) {
 					job j;
 					if (worker_thread::get_thread_id() == 0)
 						queue_wrapper::instance().pop_main(j);
@@ -618,11 +638,10 @@ namespace nova {
 					j();
 				}
 			}
-			static std::size_t get_thread_id() {
-				return thread_id();
-			}
-			static std::size_t get_thread_count() {
-				return thread_count();
+
+			static void enter_job_loop(LPVOID jobPtr) {
+				job_loop();
+				SwitchToFiber(resources::initial_fiber());
 			}
 			static void kill_worker() {
 				running() = false;
@@ -645,7 +664,7 @@ namespace nova {
 				ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 				resources::initial_fiber() = GetCurrentFiber();
 
-				job_loop();
+				SwitchToFiber(get_fresh_fiber(enter_job_loop));
 
 				resources::delete_fiber_pool();
 			}
@@ -996,8 +1015,7 @@ namespace nova {
 			SwitchToFiber(oldFiber);
 
 			//Re-use starts here
-			if(worker_thread::is_running())
-				resources::call_token()->Release();
+			resources::call_token()->Release();
 		}
 
 		//Starting point for a new fiber, queues a list of jobs and immediately enters the job loop.
@@ -1006,21 +1024,7 @@ namespace nova {
 		inline void open_call_token_enter_job_loop(LPVOID jobPtr) {
 			resources::call_token()->Release();
 			worker_thread::job_loop();
-			auto current = GetCurrentFiber();
 			SwitchToFiber(resources::initial_fiber());
-		}
-
-		inline LPVOID get_fresh_fiber() {
-			LPVOID newFiber;
-
-			if (resources::available_fibers().size() > 0) {
-				newFiber = resources::available_fibers()[resources::available_fibers().size() - 1];
-				resources::available_fibers().pop_back();
-			}
-			else
-				newFiber = CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)open_call_token_enter_job_loop, nullptr);
-
-			return newFiber;
 		}
 
 		template<typename ... Controls, typename ... Params>
@@ -1035,7 +1039,7 @@ namespace nova {
 
 			call_push<includes_type<to_main, Controls...>::value>(dt, std::forward<Params>(params)...);
 
-			SwitchToFiber(get_fresh_fiber());
+			SwitchToFiber(get_fresh_fiber(open_call_token_enter_job_loop));
 		}
 
 	}
