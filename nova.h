@@ -300,14 +300,14 @@ namespace nova {
 				return *this;
 			}
 
-			template<typename Runnable, std::enable_if_t<!(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(std::decay_t<Runnable>) <= paddingSize), int> = 0>
+			template<typename Runnable>
 			job(Runnable&& runnable) {
-				new (padding) job_derived<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
-			}
-
-			template<typename Runnable, std::enable_if_t<alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(std::decay_t<Runnable>) <= paddingSize, int> = 0>
-			job(Runnable&& runnable) {
-				new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
+				if constexpr(alignof(Runnable) <= NOVA_CACHE_LINE_BYTES && sizeof(job_derived_smo<std::decay_t<Runnable>>) <= paddingSize) {
+					new (padding) job_derived_smo<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
+				}
+				else {
+					new (padding) job_derived<std::decay_t<Runnable>>(std::forward<Runnable>(runnable));
+				}
 			}
 
 			template<typename Runnable>
@@ -374,6 +374,11 @@ namespace nova {
 				static thread_local std::vector<LPVOID> af;
 				return af;
 			}
+			static void delete_fiber_pool() {
+				auto available = available_fibers();
+				for (LPVOID fiber_id : available)
+					DeleteFiber(fiber_id);
+			}
 			static dependency_token *& call_token() {
 				static thread_local dependency_token * ct;
 				return ct;
@@ -381,7 +386,16 @@ namespace nova {
 			static dependency_token *& dependent_token() {
 				static thread_local dependency_token * se;
 				return se;
-			}			
+			}	
+			static LPVOID & initial_fiber() {
+				static thread_local LPVOID ifib = NULL;
+				return ifib;
+			}
+
+			static bool & should_release_call_token() {
+				static thread_local bool srct = true;
+				return srct;
+			}
 		};
 	}
 
@@ -613,7 +627,11 @@ namespace nova {
 			static void kill_worker() {
 				running() = false;
 			}
+			static bool is_running() {
+				return running();
+			}
 			void Join() {
+				while (!m_thread.joinable());
 				m_thread.join();
 			}
 		private:
@@ -625,7 +643,11 @@ namespace nova {
 				}
 				queue_wrapper::current_thread_data() = &m_thread_data;
 				ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+				resources::initial_fiber() = GetCurrentFiber();
+
 				job_loop();
+
+				resources::delete_fiber_pool();
 			}
 
 			// Meyers singletons
@@ -700,7 +722,7 @@ namespace nova {
 				std::size_t batchStart = start();
 				std::size_t batchEnd = end();
 				float count = static_cast<float>(batchEnd - batchStart);
-				std::size_t section = static_cast<start_index_t>(InterlockedIncrement(&m_currentSection));
+				std::size_t section = static_cast<start_index_t>(++m_currentSection);
 				std::size_t newStart = static_cast<start_index_t>(batchStart + std::floor(static_cast<float>(count*(section - 1) / m_sections)));
 				batchEnd = static_cast<std::size_t>(batchStart + std::floor(count*section / m_sections));
 
@@ -713,16 +735,6 @@ namespace nova {
 				return m_sections;
 			}
 
-			void* operator new(size_t i)
-			{
-				return _mm_malloc(i, 32);
-			}
-
-			void operator delete(void* p)
-			{
-				_mm_free(p);
-			}
-
 			typedef function<Callable, Params...> simpleType;
 
 		private:
@@ -730,7 +742,7 @@ namespace nova {
 			typedef impl::integral_index<tuple_t> tupleIntegralIndex;
 			typedef std::tuple_element_t<tupleIntegralIndex::value, tuple_t> start_index_t;
 			typedef std::tuple_element_t<tupleIntegralIndex::value + 1, tuple_t> end_index_t;
-			alignas(32) uint32_t m_currentSection = 0;
+			std::atomic<std::size_t> m_currentSection = 0;
 			std::size_t m_sections;
 
 			start_index_t& start() {
@@ -984,7 +996,8 @@ namespace nova {
 			SwitchToFiber(oldFiber);
 
 			//Re-use starts here
-			resources::call_token()->Release();
+			if(worker_thread::is_running())
+				resources::call_token()->Release();
 		}
 
 		//Starting point for a new fiber, queues a list of jobs and immediately enters the job loop.
@@ -993,6 +1006,8 @@ namespace nova {
 		inline void open_call_token_enter_job_loop(LPVOID jobPtr) {
 			resources::call_token()->Release();
 			worker_thread::job_loop();
+			auto current = GetCurrentFiber();
+			SwitchToFiber(resources::initial_fiber());
 		}
 
 		inline LPVOID get_fresh_fiber() {
@@ -1068,7 +1083,7 @@ namespace nova {
 		queue_wrapper::current_thread_data() = &td;
 		ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 
-		push<true>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
+		push<nova::to_main>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
 
 		worker_thread::job_loop();
 
@@ -1098,10 +1113,12 @@ namespace nova {
 
 		nova::call<nova::to_main, nova::return_main>(bind(std::forward<Callable>(callable), std::forward<Params>(args)...));
 
+
 		for (worker_thread & wt : threads)
 			push(bind(worker_thread::kill_worker));
 		for (worker_thread & wt : threads)
 			wt.Join();
+		resources::delete_fiber_pool();
 	}
 
 	//Starts the job system with as many threads as the system can run concurrently and enters the given Callable with the given parameters. Returns when the Callable returns.
