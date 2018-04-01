@@ -1,8 +1,8 @@
 # nova
 
-nova is a header-only C++14 job system for Windows. It spins up a thread pool which you can push function invocations to syncronously, asynchronously, or semi-synchronously.
+nova is a header-only C++17 job system for Windows. It spins up a thread pool which you can push function invocations to syncronously, asynchronously, or semi-synchronously.
 
-*Tested on MSVC2015 and Clang 4.0.0.*
+*Tested on MSVC2017 and Clang 4.0.0.*
 
 ## Table of contents
 * [Getting started](#getting-started)
@@ -29,7 +29,7 @@ nova is a header-only C++14 job system for Windows. It spins up a thread pool wh
 
 ## Getting started
 
-Using the system is easy: download the headers, `#include "nova.h"`, and use all the stuff in the `nova` namespace.
+Using the system is easy: download the headers, `#include "nova.h"`, and use all the stuff in the `nova` namespace. Remember to enable C++17 features on your compiler.
 
 ## Synchronous usage
 #### [`start_sync`](https://github.com/narrill/nova/wiki/API-reference#novastart_sync), [`call`](https://github.com/narrill/nova/wiki/API-reference#novacall), [`bind`](https://github.com/narrill/nova/wiki/API-reference#novabind) <sub>API reference</sub>
