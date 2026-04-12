@@ -142,7 +142,7 @@ namespace nova
         //(std::osyncstream(std::cout) << ... << args) << " thread_id: " << detail::g_thread_id << " fiber ID: " << get_fiber_id() << std::endl;
     }
 
-    class job_system
+    class thread_pool
     {
         struct context_token
         {
@@ -153,8 +153,8 @@ namespace nova
         struct resume_context
         {
             resume_context(
-                job_system& jobSystem)
-                : jobSystem(jobSystem)
+                thread_pool& threadPool)
+                : threadPool(threadPool)
             {
             }
 
@@ -163,10 +163,10 @@ namespace nova
                 //log("resume context destruction");
                 if (thread_affinity == std::numeric_limits<size_t>::max())
                 {
-                    thread_affinity = jobSystem.thread_id();
+                    thread_affinity = threadPool.thread_id();
                 }
 
-                auto& workerState = jobSystem.worker_states[thread_affinity];
+                auto& workerState = threadPool.worker_states[thread_affinity];
                 auto& queuedContinuation = workerState.queued_continuation;
 
                 {
@@ -195,7 +195,7 @@ namespace nova
             size_t thread_affinity = std::numeric_limits<size_t>::max();
             boost::context::continuation continuation;
             context_token token;
-            job_system& jobSystem;
+            thread_pool& threadPool;
         };
 
         struct worker_state
@@ -215,7 +215,7 @@ namespace nova
         };
 
     public:
-        job_system(
+        thread_pool(
             size_t numThreads)
             : num_threads(numThreads)
         {
@@ -232,7 +232,7 @@ namespace nova
                     worker_threads.emplace_back(
                         [this, n]()
                     {
-                        // Enforced affinity on first fork ensures jumping directly into the job loop is safe.
+                        // Enforced affinity on first async ensures jumping directly into the job loop is safe.
                         // Otherwise we would need to yield to a new fiber before starting the job loop,
                         // to allow us to resume the original callstack before terminating.
                         detail::g_thread_id = n;
@@ -242,28 +242,28 @@ namespace nova
             }
         }
 
-        ~job_system()
+        ~thread_pool()
         {
             kill_signal = true;
         }
 
-        class task_handle
+        class task
         {
         public:
-            task_handle(const task_handle&) = delete;
-            task_handle(task_handle&&) = default;
-            void await()
+            task(const task&) = delete;
+            task(task&&) = default;
+            void wait()
             {
                 if (context.use_count() > 1)
                 {
-                    context->jobSystem._yield_to_job_loop(context);
+                    context->threadPool._yield_to_job_loop(context);
                     log("resumed");
                 }
             }
         private:
-            friend class job_system;
-            task_handle(job_system& jobSystem)
-                : context(std::make_shared<resume_context>(jobSystem))
+            friend class thread_pool;
+            task(thread_pool& threadPool)
+                : context(std::make_shared<resume_context>(threadPool))
             {
             }
 
@@ -271,12 +271,12 @@ namespace nova
         };
 
         template<typename... Funcs>
-        task_handle fork(Funcs&&... funcs)
+        task async(Funcs&&... funcs)
         {
-            log("beginning fork");
-            task_handle handle(*this);
+            log("beginning async");
+            task handle(*this);
 
-            // The first fork on each thread has affinity, to ensure that the original callstack
+            // The first async on each thread has affinity, to ensure that the original callstack
             // is returned to the thread when the tree unwinds.
             if (detail::g_fork_depth == 0)
             {
@@ -364,7 +364,7 @@ namespace nova
             }
 
             // When control is returned, store the fiber that yielded back to us for later reuse.
-            // This avoids allocating a stack every time we fork.
+            // This avoids allocating a stack every time we async.
             _get_worker_state().free_continuations.emplace_back(std::move(continuation));
         }
 
