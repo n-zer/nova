@@ -216,7 +216,7 @@ namespace nova
 
     public:
         thread_pool(
-            size_t numThreads)
+            size_t numThreads = std::thread::hardware_concurrency())
             : num_threads(numThreads)
         {
             assert(numThreads > 0);
@@ -271,10 +271,9 @@ namespace nova
         };
 
         template<typename... Funcs>
-        task async(Funcs&&... funcs)
+        void async(task& handle, Funcs&&... funcs)
         {
             log("beginning async");
-            task handle(*this);
 
             // The first async on each thread has affinity, to ensure that the original callstack
             // is returned to the thread when the tree unwinds.
@@ -292,7 +291,13 @@ namespace nova
 
             // Attach the resume context to all queued jobs so this fiber resumes when all jobs have completed.
             (_push_to_queue([context = handle.context, funcs]() { funcs(); }), ...);
+        }
 
+        template<typename... Funcs>
+        task async(Funcs&&... funcs)
+        {
+            task handle(*this);
+            async(handle, std::forward<Funcs>(funcs)...);
             return handle;
         }
 
