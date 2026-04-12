@@ -195,8 +195,6 @@ namespace nova
             size_t thread_affinity = std::numeric_limits<size_t>::max();
             boost::context::continuation continuation;
             context_token token;
-
-        private:
             job_system& jobSystem;
         };
 
@@ -249,17 +247,40 @@ namespace nova
             kill_signal = true;
         }
 
-        template<typename Func, typename... Funcs>
-        void fork(Func&& func, Funcs&&... funcs)
+        class task_handle
+        {
+        public:
+            task_handle(const task_handle&) = delete;
+            task_handle(task_handle&&) = default;
+            void await()
+            {
+                if (context.use_count() > 1)
+                {
+                    context->jobSystem._yield_to_job_loop(context);
+                    log("resumed");
+                }
+            }
+        private:
+            friend class job_system;
+            task_handle(job_system& jobSystem)
+                : context(std::make_shared<resume_context>(jobSystem))
+            {
+            }
+
+            std::shared_ptr<resume_context> context;
+        };
+
+        template<typename... Funcs>
+        task_handle fork(Funcs&&... funcs)
         {
             log("beginning fork");
-            auto context = std::make_shared<resume_context>(*this);
+            task_handle handle(*this);
 
             // The first fork on each thread has affinity, to ensure that the original callstack
             // is returned to the thread when the tree unwinds.
             if (detail::g_fork_depth == 0)
             {
-                context-> thread_affinity = thread_id();
+                handle.context->thread_affinity = thread_id();
             }
 
             struct fork_depth_guard
@@ -269,22 +290,9 @@ namespace nova
             } guard;
 
             // Attach the resume context to all queued jobs so this fiber resumes when all jobs have completed.
-            (_push_to_queue([context, funcs]() { funcs(); }), ...);
+            (_push_to_queue([context = handle.context, funcs]() { funcs(); }), ...);
 
-            func();
-
-            // If we're the only ones holding the context, all the other jobs have finished already
-            // and there's no need to yield.
-            if (context.use_count() == 1)
-            {
-                return;
-            }
-
-            auto continuation = _yield_to_job_loop(context);
-            log("resumed");
-
-            // When control is returned, store the fiber that yielded back to us for later reuse
-            _get_worker_state().free_continuations.emplace_back(std::move(continuation));
+            return std::move(handle);
         }
 
         static size_t thread_id() { return detail::g_thread_id; }
@@ -321,14 +329,16 @@ namespace nova
 
         // Yields to a fiber that runs the job loop. When the context expires, the current fiber will be queued for resumption.
         // Returns the continuation for whatever fiber eventually yields control back. Note that this may not be the same fiber we yielded to.
-        boost::context::continuation _yield_to_job_loop(
+        void _yield_to_job_loop(
             std::shared_ptr<resume_context>& context)
         {
             auto& workerState = _get_worker_state();
 
+            boost::context::continuation continuation;
+
             if (workerState.free_continuations.empty())
             {
-                return boost::context::callcc(
+                continuation = boost::context::callcc(
                     [this, context = std::move(context)](boost::context::continuation&& continuation) mutable
                 {
                     log("new fiber");
@@ -338,18 +348,24 @@ namespace nova
                     return boost::context::continuation();
                 });
             }
-
-            boost::context::continuation continuation = std::move(workerState.free_continuations.back());
-            workerState.free_continuations.pop_back();
-            workerState.reuse_context = std::move(context);
-            return continuation.resume_with([this](boost::context::continuation&& continuation) mutable
+            else
             {
-                log("reusing fiber");
-                auto& context = _get_worker_state().reuse_context;
-                context->continuation = std::move(continuation);
-                context.reset();
-                return boost::context::continuation();
-            });
+                boost::context::continuation reuseContinuation = std::move(workerState.free_continuations.back());
+                workerState.free_continuations.pop_back();
+                workerState.reuse_context = std::move(context);
+                continuation = reuseContinuation.resume_with([this](boost::context::continuation&& continuation) mutable
+                {
+                    log("reusing fiber");
+                    auto& context = _get_worker_state().reuse_context;
+                    context->continuation = std::move(continuation);
+                    context.reset();
+                    return boost::context::continuation();
+                });
+            }
+
+            // When control is returned, store the fiber that yielded back to us for later reuse.
+            // This avoids allocating a stack every time we fork.
+            _get_worker_state().free_continuations.emplace_back(std::move(continuation));
         }
 
         worker_state& _get_worker_state() { return worker_states[detail::g_thread_id]; }
