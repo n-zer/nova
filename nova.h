@@ -16,6 +16,23 @@
 #include <functional>
 #include <cassert>
 #include <boost/context/continuation.hpp>
+#include <syncstream>
+#include <stacktrace>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
+
+void* get_fiber_id() {
+#ifdef _WIN32
+    // NT_TIB is the Thread Information Block
+    // StackBase is a unique pointer to the top of the current stack
+    return ((PNT_TIB)NtCurrentTeb())->StackBase;
+#else
+    return nullptr;
+#endif
+}
 
 namespace nova 
 {
@@ -112,25 +129,93 @@ namespace nova
             }
         };
 
-        using job = std::function<void()>;
+        using job = std::move_only_function<void()>;
+
+        thread_local size_t g_thread_id = 0;
+        thread_local size_t g_fork_depth = 0;
+        std::atomic<size_t> g_resume_contexts = 0;
+    }
+
+    template<typename... T>
+    static void log(T&&... args)
+    {
+        (std::osyncstream(std::cout) << ... << args) << " thread_id: " << detail::g_thread_id << " fiber ID: " << get_fiber_id() << std::endl;
+    }
+
+    class job_system
+    {
+        struct context_token
+        {
+            context_token() { ++detail::g_resume_contexts; }
+            ~context_token() { --detail::g_resume_contexts; }
+        };
+        // On expiration, queue the stored continuation for resumption
+        struct resume_context
+        {
+            resume_context(
+                job_system& jobSystem)
+                : jobSystem(jobSystem)
+            {
+            }
+
+            ~resume_context()
+            {
+                //log("resume context destruction");
+                if (thread_affinity == std::numeric_limits<size_t>::max())
+                {
+                    thread_affinity = jobSystem.thread_id();
+                }
+
+                auto& workerState = jobSystem.worker_states[thread_affinity];
+                auto& queuedContinuation = workerState.queued_continuation;
+
+                {
+                    std::scoped_lock guard(workerState.queued_continuation_mutex);
+
+                    // If no continuation is currently queued, we can use the slot.
+                    // Otherwise, we need to marshal the continuation to the thread
+                    // using its private queue.
+
+                    if (!queuedContinuation)
+                    {
+                        queuedContinuation = std::move(continuation);
+                        return;
+                    }
+                }
+
+                bool success = workerState.private_queue.try_push(
+                    [&queuedContinuation, continuation = std::move(continuation)]() mutable
+                {
+                    assert(!queuedContinuation);
+                    queuedContinuation = std::move(continuation);
+                });
+                assert(success);
+            }
+
+            size_t thread_affinity = std::numeric_limits<size_t>::max();
+            boost::context::continuation continuation;
+            context_token token;
+
+        private:
+            job_system& jobSystem;
+        };
 
         struct worker_state
         {
-            std::mutex private_queue_lock;
-            std::vector<job> private_queue;
+            detail::mpmc_ring_buffer<detail::job, 8> private_queue;
 
             std::mutex signal_mutex;
             std::condition_variable signal_cv;
 
             std::vector<boost::context::continuation> free_continuations;
+            std::mutex queued_continuation_mutex;
             boost::context::continuation queued_continuation;
+
+            // Needed because continuation::resume_with will copy the given lambda and
+            // hold a copy on the suspended stack, because who the fuck knows why
+            std::shared_ptr<resume_context> reuse_context;
         };
 
-        thread_local size_t g_thread_id = 0;
-    }
-
-    class job_system
-    {
     public:
         job_system(
             size_t numThreads)
@@ -138,7 +223,7 @@ namespace nova
         {
             assert(numThreads > 0);
 
-            worker_state.reset(new detail::worker_state[numThreads]);
+            worker_states.reset(new worker_state[numThreads]);
             if (numThreads > 1)
             {
                 worker_threads.reserve(numThreads - 1);
@@ -148,7 +233,10 @@ namespace nova
                 {
                     worker_threads.emplace_back(
                         [this, n]()
-                    { 
+                    {
+                        // Enforced affinity on first fork ensures jumping directly into the job loop is safe.
+                        // Otherwise we would need to yield to a new fiber before starting the job loop,
+                        // to allow us to resume the original callstack before terminating.
                         detail::g_thread_id = n;
                         _job_loop();
                     });
@@ -156,65 +244,83 @@ namespace nova
             }
         }
 
+        ~job_system()
+        {
+            kill_signal = true;
+        }
+
         template<typename Func, typename... Funcs>
         void fork(Func&& func, Funcs&&... funcs)
         {
-            // Attach a resume context to all queued jobs so this fiber resumes when all jobs have completed.
+            log("beginning fork");
             auto context = std::make_shared<resume_context>(*this);
+
+            // The first fork on each thread has affinity, to ensure that the original callstack
+            // is returned to the thread when the tree unwinds.
+            if (detail::g_fork_depth == 0)
+            {
+                context-> thread_affinity = thread_id();
+            }
+            ++detail::g_fork_depth;
+
+            // Attach the resume context to all queued jobs so this fiber resumes when all jobs have completed.
             (_push_to_queue([context, funcs]() { funcs(); }), ...);
 
             func();
 
-            // Don't bother yielding if we're the only ones still holding the context
-            if (context.use_count() < 1)
+            // If we're the only ones holding the context, all the other jobs have finished already
+            // and there's no need to yield.
+            if (context.use_count() == 1)
             {
-                auto continuation = _yield_to_job_loop(std::move(context));
-
-                // When control is returned, store the fiber that yielded back to us for later reuse
-                _get_worker_state().free_continuations.emplace_back(std::move(continuation));
+                --detail::g_fork_depth;
+                return;
             }
+
+            auto continuation = _yield_to_job_loop(context);
+            log("resumed");
+
+            --detail::g_fork_depth;
+
+            // When control is returned, store the fiber that yielded back to us for later reuse
+            _get_worker_state().free_continuations.emplace_back(std::move(continuation));
         }
+
+        static size_t thread_id() { return detail::g_thread_id; }
+        size_t thread_count() const { return num_threads; }
 
     private:
         void _job_loop()
         {
-            while (true)
+            while (!kill_signal)
             {
-                while (_get_worker_state().queued_continuation)
+                while (true)
                 {
-                    _get_worker_state().queued_continuation.resume();
+                    boost::context::continuation continuation;
+                    {
+                        std::scoped_lock guard(_get_worker_state().queued_continuation_mutex);
+                        if (!_get_worker_state().queued_continuation)
+                        {
+                            break;
+                        }
+                        
+                        continuation = std::move(_get_worker_state().queued_continuation);
+                    }
+
+                    //log("resuming continuation");
+                    continuation.resume();
                 }
 
-                if (detail::job j; job_queue.try_pop(j))
+                if (detail::job j; _get_worker_state().private_queue.try_pop(j) || job_queue.try_pop(j))
                 {
                     j();
                 }
             }
         }
 
-        // On expiration, queue the stored continuation for resumption
-        struct resume_context
-        {
-            resume_context(job_system& jobSystem)
-                : jobSystem(jobSystem)
-            {
-            }
-
-            ~resume_context()
-            {
-                jobSystem._get_worker_state().queued_continuation = std::move(continuation);
-            }
-
-            boost::context::continuation continuation;
-
-        private:
-            job_system& jobSystem;
-        };
-
         // Yields to a fiber that runs the job loop. When the context expires, the current fiber will be queued for resumption.
         // Returns the continuation for whatever fiber eventually yields control back. Note that this may not be the same fiber we yielded to.
         boost::context::continuation _yield_to_job_loop(
-            std::shared_ptr<resume_context> context)
+            std::shared_ptr<resume_context>& context)
         {
             auto& workerState = _get_worker_state();
 
@@ -223,6 +329,7 @@ namespace nova
                 return boost::context::callcc(
                     [this, context = std::move(context)](boost::context::continuation&& continuation) mutable
                 {
+                    log("new fiber");
                     context->continuation = std::move(continuation);
                     context.reset();
                     _job_loop();
@@ -232,26 +339,32 @@ namespace nova
 
             boost::context::continuation continuation = std::move(workerState.free_continuations.back());
             workerState.free_continuations.pop_back();
-            return continuation.resume_with([this, context = std::move(context)](boost::context::continuation&& continuation) mutable
-            { 
+            workerState.reuse_context = std::move(context);
+            return continuation.resume_with([this](boost::context::continuation&& continuation) mutable
+            {
+                log("reusing fiber");
+                auto& context = _get_worker_state().reuse_context;
                 context->continuation = std::move(continuation);
                 context.reset();
                 return boost::context::continuation();
             });
         }
 
-        detail::worker_state& _get_worker_state() { return worker_state[detail::g_thread_id]; }
+        worker_state& _get_worker_state() { return worker_states[detail::g_thread_id]; }
 
         template<typename Func>
         void _push_to_queue(Func&& func)
         {
-            assert(job_queue.try_push(std::forward<Func>(func)));
+            bool success = job_queue.try_push(std::forward<Func>(func));
+            assert(success);
         }
 
         size_t num_threads;
-        std::unique_ptr<detail::worker_state[]> worker_state;
+        std::unique_ptr<worker_state[]> worker_states;
         std::vector<std::jthread> worker_threads;
-        detail::mpmc_ring_buffer<detail::job, 128> job_queue;
+        detail::mpmc_ring_buffer<detail::job, 256> job_queue;
+
+        std::atomic_bool kill_signal = false;
     };
 }
 
