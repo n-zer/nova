@@ -139,7 +139,7 @@ namespace nova
     template<typename... T>
     static void log(T&&... args)
     {
-        (std::osyncstream(std::cout) << ... << args) << " thread_id: " << detail::g_thread_id << " fiber ID: " << get_fiber_id() << std::endl;
+        //(std::osyncstream(std::cout) << ... << args) << " thread_id: " << detail::g_thread_id << " fiber ID: " << get_fiber_id() << std::endl;
     }
 
     class job_system
@@ -261,7 +261,12 @@ namespace nova
             {
                 context-> thread_affinity = thread_id();
             }
-            ++detail::g_fork_depth;
+
+            struct fork_depth_guard
+            {
+                fork_depth_guard() { ++detail::g_fork_depth; }
+                ~fork_depth_guard() { --detail::g_fork_depth; }
+            } guard;
 
             // Attach the resume context to all queued jobs so this fiber resumes when all jobs have completed.
             (_push_to_queue([context, funcs]() { funcs(); }), ...);
@@ -272,14 +277,11 @@ namespace nova
             // and there's no need to yield.
             if (context.use_count() == 1)
             {
-                --detail::g_fork_depth;
                 return;
             }
 
             auto continuation = _yield_to_job_loop(context);
             log("resumed");
-
-            --detail::g_fork_depth;
 
             // When control is returned, store the fiber that yielded back to us for later reuse
             _get_worker_state().free_continuations.emplace_back(std::move(continuation));
