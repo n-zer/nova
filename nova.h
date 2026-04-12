@@ -132,7 +132,7 @@ namespace nova
         using job = std::move_only_function<void()>;
 
         thread_local size_t g_thread_id = 0;
-        thread_local size_t g_fork_depth = 0;
+        thread_local size_t g_async_depth = 0;
         std::atomic<size_t> g_resume_contexts = 0;
     }
 
@@ -278,21 +278,22 @@ namespace nova
 
             // The first async on each thread has affinity, to ensure that the original callstack
             // is returned to the thread when the tree unwinds.
-            if (detail::g_fork_depth == 0)
+            if (detail::g_async_depth == 0)
             {
                 handle.context->thread_affinity = thread_id();
             }
 
-            struct fork_depth_guard
+            struct async_depth_guard
             {
-                fork_depth_guard() { ++detail::g_fork_depth; }
-                ~fork_depth_guard() { --detail::g_fork_depth; }
+                async_depth_guard() { ++detail::g_async_depth; }
+                ~async_depth_guard() { --detail::g_async_depth; }
+                async_depth_guard(const async_depth_guard&) = delete;
             } guard;
 
             // Attach the resume context to all queued jobs so this fiber resumes when all jobs have completed.
             (_push_to_queue([context = handle.context, funcs]() { funcs(); }), ...);
 
-            return std::move(handle);
+            return handle;
         }
 
         static size_t thread_id() { return detail::g_thread_id; }
