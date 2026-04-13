@@ -188,7 +188,7 @@ namespace nova
             return handle;
         }
 
-        size_t thread_count() const { return worker_threads.size(); }
+        size_t thread_count() const { return worker_threads.size() + 1; }
 
         template<typename StopFunc>
         void work_until(
