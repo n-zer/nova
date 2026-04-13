@@ -4,6 +4,7 @@
 #define NOVA_H
 
 #include <vector>
+#include <deque>
 #include <array>
 #include <thread>
 #include <mutex>
@@ -142,6 +143,9 @@ namespace nova
         //(std::osyncstream(std::cout) << ... << args) << " thread_id: " << detail::g_thread_id << " fiber ID: " << get_fiber_id() << std::endl;
     }
 
+    size_t thread_id() { return detail::g_thread_id; }
+
+    template<size_t Capacity = 256>
     class thread_pool
     {
         struct context_token
@@ -163,7 +167,7 @@ namespace nova
                 //log("resume context destruction");
                 if (thread_affinity == std::numeric_limits<size_t>::max())
                 {
-                    thread_affinity = threadPool.thread_id();
+                    thread_affinity = thread_id();
                 }
 
                 auto& workerState = threadPool.worker_states[thread_affinity];
@@ -212,6 +216,9 @@ namespace nova
             // Needed because continuation::resume_with will copy the given lambda and
             // hold a copy on the suspended stack, because who the fuck knows why
             std::shared_ptr<resume_context> reuse_context;
+
+            unsigned int jobs_processed_since_blocked = 0;
+            std::deque<std::shared_ptr<resume_context>> blocked_contexts;
         };
 
     public:
@@ -301,7 +308,6 @@ namespace nova
             return handle;
         }
 
-        static size_t thread_id() { return detail::g_thread_id; }
         size_t thread_count() const { return num_threads; }
 
     private:
@@ -326,9 +332,20 @@ namespace nova
                     continuation.resume();
                 }
 
-                if (detail::job j; _get_worker_state().private_queue.try_pop(j) || job_queue.try_pop(j))
+                bool gotJob;
                 {
-                    j();
+                    detail::job j;
+                    gotJob = _get_worker_state().private_queue.try_pop(j) || job_queue.try_pop(j);
+                    if (gotJob)
+                    {
+                        j();
+                        ++_get_worker_state().jobs_processed_since_blocked;
+                    }
+                }
+
+                if (!_get_worker_state().blocked_contexts.empty() && (!gotJob || _get_worker_state().jobs_processed_since_blocked > 5))
+                {
+                    _get_worker_state().blocked_contexts.pop_front();
                 }
             }
         }
@@ -379,14 +396,20 @@ namespace nova
         template<typename Func>
         void _push_to_queue(Func&& func)
         {
-            bool success = job_queue.try_push(std::forward<Func>(func));
-            assert(success);
+            while (!job_queue.try_push(std::forward<Func>(func)))
+            {
+                auto& workerState = _get_worker_state();
+                workerState.jobs_processed_since_blocked = 0;
+                auto& blockedContext = workerState.blocked_contexts.emplace_back();
+                blockedContext = std::make_shared<resume_context>(*this);
+                _yield_to_job_loop(blockedContext);
+            }
         }
 
         size_t num_threads;
         std::unique_ptr<worker_state[]> worker_states;
         std::vector<std::jthread> worker_threads;
-        detail::mpmc_ring_buffer<detail::job, 256> job_queue;
+        detail::mpmc_ring_buffer<detail::job, Capacity> job_queue;
 
         std::atomic_bool kill_signal = false;
     };
