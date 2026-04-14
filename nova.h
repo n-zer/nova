@@ -43,9 +43,9 @@ namespace nova
             bool try_push(
                 T&& data)
             {
-                auto pos = enqueue_pos.load(std::memory_order_relaxed);
                 while (true)
                 {
+                    auto pos = enqueue_pos.load(std::memory_order_relaxed);
                     auto* node = &buffer[pos & (Size - 1)];
                     auto seq = node->sequence.load(std::memory_order_acquire);
                     auto diff = (intptr_t)seq - (intptr_t)pos;
@@ -53,7 +53,7 @@ namespace nova
                     // Slot is ready for a new item
                     if (diff == 0)
                     {
-                        if (enqueue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
+                        if (enqueue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_acq_rel, std::memory_order_relaxed))
                         {
                             node->data = std::move(data);
                             node->sequence.store(pos + 1, std::memory_order_release);
@@ -66,19 +66,15 @@ namespace nova
                         return false;
                     }
                     // Another producer won this slot
-                    else
-                    { 
-                        pos = enqueue_pos.load(std::memory_order_relaxed);
-                    }
                 }
             }
 
             bool try_pop(
                 T& data)
             {
-                auto pos = dequeue_pos.load(std::memory_order_relaxed);
                 while (true)
                 {
+                    auto pos = dequeue_pos.load(std::memory_order_relaxed);
                     auto* node = &buffer[pos & (Size - 1)];
                     auto seq = node->sequence.load(std::memory_order_acquire);
                     auto diff = (intptr_t)seq - (intptr_t)(pos + 1);
@@ -86,7 +82,7 @@ namespace nova
                     // Slot has data to be consumed
                     if (diff == 0)
                     {
-                        if (dequeue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
+                        if (dequeue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_acq_rel, std::memory_order_relaxed))
                         {
                             data = std::move(node->data);
                             node->sequence.store(pos + Size, std::memory_order_release);
@@ -99,10 +95,6 @@ namespace nova
                         return false;
                     }
                     // Someone else grabbed this item
-                    else
-                    {
-                        pos = dequeue_pos.load(std::memory_order_relaxed);
-                    }
                 }
             }
         };
