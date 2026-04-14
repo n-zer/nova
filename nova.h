@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cassert>
 #include <functional>
+#include <numeric>
 
 namespace nova 
 {
@@ -22,7 +23,7 @@ namespace nova
                 std::atomic<std::size_t> sequence;
             };
 
-            static_assert((Size& (Size - 1)) == 0, "Size must be power of 2");
+            static_assert((Size & (Size - 1)) == 0, "Size must be power of 2");
 
             Node buffer[Size];
             alignas(64) std::atomic<std::size_t> enqueue_pos;
@@ -39,7 +40,8 @@ namespace nova
                 dequeue_pos.store(0);
             }
 
-            bool try_push(T&& data)
+            bool try_push(
+                T&& data)
             {
                 auto pos = enqueue_pos.load(std::memory_order_relaxed);
                 while (true)
@@ -71,7 +73,8 @@ namespace nova
                 }
             }
 
-            bool try_pop(T& data)
+            bool try_pop(
+                T& data)
             {
                 auto pos = dequeue_pos.load(std::memory_order_relaxed);
                 while (true)
@@ -111,6 +114,15 @@ namespace nova
 
     size_t thread_id() { return detail::g_thread_id; }
 
+    struct range
+    {
+        size_t start = 0;
+        size_t end = 0;
+        size_t grain = 0;
+
+        size_t distance() const { return end - start; }
+    };
+
     template<size_t Capacity = 128>
     class thread_pool
     {
@@ -124,7 +136,9 @@ namespace nova
 
         struct job_context
         {
-            job_context(work_context& workContext) : work_context(&workContext)
+            job_context(
+                work_context& workContext)
+                : work_context(&workContext)
             {
                 work_context->job_count.fetch_add(1);
             }
@@ -139,12 +153,14 @@ namespace nova
                 }
             }
 
-            job_context(job_context&& other)
+            job_context(
+                job_context&& other)
             {
                 *this = std::move(other);
             }
 
-            job_context& operator=(job_context&& other)
+            job_context& operator=(
+                job_context&& other)
             {
                 work_context = other.work_context;
                 other.work_context = nullptr;
@@ -156,7 +172,8 @@ namespace nova
 
         struct task_context
         {
-            task_context(work_context& workContext) : work_context(&workContext)
+            task_context(
+                work_context& workContext) : work_context(&workContext)
             {
                 work_context->task_count.fetch_add(1);
             }
@@ -171,24 +188,28 @@ namespace nova
                 }
             }
 
-            task_context(const task_context& other)
+            task_context(
+                const task_context& other)
             {
                 *this = other;
             }
 
-            task_context& operator=(const task_context& other)
+            task_context& operator=(
+                const task_context& other)
             {
                 work_context = other.work_context;
                 work_context->task_count.fetch_add(1);
                 return *this;
             }
 
-            task_context(task_context&& other)
+            task_context(
+                task_context&& other)
             {
                 *this = std::move(other);
             }
 
-            task_context& operator=(task_context&& other)
+            task_context& operator=(
+                task_context&& other)
             {
                 work_context = other.work_context;
                 other.work_context = nullptr;
@@ -241,27 +262,61 @@ namespace nova
         private:
             friend class thread_pool;
 
-            task(work_context& context)
-                : context(context)
+            task(
+                thread_pool& threadPool)
+                : context(*new work_context(threadPool))
             {
             }
 
             task_context context;
         };
 
-        template<typename... Funcs>
-        void async(task& handle, Funcs&&... funcs)
+        template<typename... Func>
+        void async(
+            task& handle, 
+            Func&&... func)
         {
-            (_push_to_queue([context = job_context(*handle.context.work_context), funcs]() { funcs(); }), ...);
+            (_push_to_queue(
+                [context = job_context(*handle.context.work_context), f = std::forward<Func>(func)]() mutable { f(); }), ...);
         }
 
-        template<typename... Funcs>
-        task async(Funcs&&... funcs)
+        template<typename... Func>
+        task async(
+            Func&&... func)
         {
-            auto* workContext = new work_context(*this);
-            task handle(*workContext);
-            async(handle, std::forward<Funcs>(funcs)...);
+            task handle(*this);
+            async(handle, std::forward<Func>(func)...);
             return handle;
+        }
+
+        template<typename Func>
+        void sync_all(
+            Func&& func)
+        {
+            task handle(*this);
+            for (size_t n = 0; n < thread_count(); ++n)
+            {
+                async(handle, std::ref(func));
+            }
+            handle.wait();
+        }
+
+        template<typename Func>
+        void parallel_for(
+            const range& range,
+            Func&& func)
+        {
+            task handle(*this);
+            auto grain = range.grain ? range.grain : (range.distance() + thread_count() - 1) / thread_count();
+            for (size_t n = 0; n < range.end; n += grain)
+            {
+                _push_to_queue(
+                    [start = n, end = std::min(n + grain, range.end), context = job_context(*handle.context.work_context), &func]()
+                {
+                    func(start, end);
+                });
+            }
+            handle.wait();
         }
 
         size_t thread_count() const { return worker_threads.size() + 1; }
@@ -272,8 +327,7 @@ namespace nova
         {
             while (!stopFunc())
             {
-                detail::job j;
-                if (job_queue.try_pop(j))
+                if (detail::job j; job_queue.try_pop(j))
                 {
                     j();
                 }
@@ -282,7 +336,8 @@ namespace nova
 
     private:
         template<typename Func>
-        void _push_to_queue(Func&& func)
+        void _push_to_queue(
+            Func&& func)
         {
             while (!job_queue.try_push(std::forward<Func>(func)))
             {
