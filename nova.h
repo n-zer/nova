@@ -4,19 +4,10 @@
 #define NOVA_H
 
 #include <vector>
-#include <deque>
-#include <array>
 #include <thread>
-#include <mutex>
-#include <tuple>
-#include <memory>
-#include <cmath>
-#include <algorithm>
-#include <iterator>
 #include <atomic>
-#include <functional>
 #include <cassert>
-#include <syncstream>
+#include <functional>
 
 namespace nova 
 {
@@ -33,7 +24,7 @@ namespace nova
 
             static_assert((Size& (Size - 1)) == 0, "Size must be power of 2");
 
-            std::array<Node, Size> buffer;
+            Node buffer[Size];
             alignas(64) std::atomic<std::size_t> enqueue_pos;
             alignas(64) std::atomic<std::size_t> dequeue_pos;
 
@@ -120,9 +111,93 @@ namespace nova
 
     size_t thread_id() { return detail::g_thread_id; }
 
-    template<size_t Capacity = 256>
+    template<size_t Capacity = 128>
     class thread_pool
     {
+        struct work_context
+        {
+            work_context(thread_pool& threadPool) : thread_pool(threadPool) {}
+            thread_pool& thread_pool;
+            std::atomic<uint32_t> task_count{};
+            std::atomic<uint32_t> job_count{};
+        };
+
+        struct job_context
+        {
+            job_context(work_context& workContext) : work_context(&workContext)
+            {
+                work_context->job_count.fetch_add(1);
+            }
+
+            ~job_context()
+            {
+                if (work_context
+                    && work_context->job_count.fetch_sub(1) == 0
+                    && work_context->task_count.load() == 0)
+                {
+                    delete work_context;
+                }
+            }
+
+            job_context(job_context&& other)
+            {
+                *this = std::move(other);
+            }
+
+            job_context& operator=(job_context&& other)
+            {
+                work_context = other.work_context;
+                other.work_context = nullptr;
+                return *this;
+            }
+
+            work_context* work_context;
+        };
+
+        struct task_context
+        {
+            task_context(work_context& workContext) : work_context(&workContext)
+            {
+                work_context->task_count.fetch_add(1);
+            }
+
+            ~task_context()
+            {
+                if (work_context
+                    && work_context->job_count.load() == 0
+                    && work_context->task_count.fetch_sub(1) == 0)
+                {
+                    delete work_context;
+                }
+            }
+
+            task_context(const task_context& other)
+            {
+                *this = other;
+            }
+
+            task_context& operator=(const task_context& other)
+            {
+                work_context = other.work_context;
+                work_context->task_count.fetch_add(1);
+                return *this;
+            }
+
+            task_context(task_context&& other)
+            {
+                *this = std::move(other);
+            }
+
+            task_context& operator=(task_context&& other)
+            {
+                work_context = other.work_context;
+                other.work_context = nullptr;
+                return *this;
+            }
+
+            work_context* work_context;
+        };
+
     public:
         thread_pool(
             size_t numThreads = std::thread::hardware_concurrency())
@@ -137,53 +212,54 @@ namespace nova
                 for (size_t n = 1; n <= worker_threads.capacity(); ++n)
                 {
                     worker_threads.emplace_back(
-                        [this, n]()
+                        [this, n](std::stop_token s)
                     {
                         detail::g_thread_id = n;
-                        work_until([this]() { return kill_signal.load(); });
+                        work_until([s]() { return s.stop_requested(); });
                     });
                 }
             }
         }
 
-        ~thread_pool()
-        {
-            kill_signal = true;
-        }
-
         class task
         {
         public:
-            task(const task&) = delete;
+            task(const task&) = default;
+            task& operator=(const task&) = default;
             task(task&&) = default;
+            task& operator=(task&&) = default;
+
             void wait()
             {
-                if (context.use_count() > 1)
+                if (context.work_context && context.work_context->job_count.load())
                 {
-                    context->get().work_until([this]() { return context.use_count() == 1; });
+                    context.work_context->thread_pool.work_until(
+                        [&workContext = *context.work_context]() { return workContext.job_count.load() == 0; });
                 }
             }
+
         private:
             friend class thread_pool;
-            task(thread_pool& threadPool)
-                : context(std::make_shared<std::reference_wrapper<thread_pool>>(threadPool))
+
+            task(work_context& context)
+                : context(context)
             {
             }
 
-            std::shared_ptr<std::reference_wrapper<thread_pool>> context;
+            task_context context;
         };
 
         template<typename... Funcs>
         void async(task& handle, Funcs&&... funcs)
         {
-            // Attach the resume context to all queued jobs so this fiber resumes when all jobs have completed.
-            (_push_to_queue([context = handle.context, funcs]() { funcs(); }), ...);
+            (_push_to_queue([context = job_context(*handle.context.work_context), funcs]() { funcs(); }), ...);
         }
 
         template<typename... Funcs>
         task async(Funcs&&... funcs)
         {
-            task handle(*this);
+            auto* workContext = new work_context(*this);
+            task handle(*workContext);
             async(handle, std::forward<Funcs>(funcs)...);
             return handle;
         }
@@ -219,8 +295,6 @@ namespace nova
 
         std::vector<std::jthread> worker_threads;
         detail::mpmc_ring_buffer<detail::job, Capacity> job_queue;
-
-        std::atomic_bool kill_signal = false;
     };
 }
 
