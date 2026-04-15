@@ -101,11 +101,7 @@ namespace nova
         };
 
         using job = std::move_only_function<void()>;
-
-        thread_local size_t g_thread_id = 0;
     }
-
-    size_t thread_id() { return detail::g_thread_id; }
 
     struct range
     {
@@ -233,7 +229,6 @@ namespace nova
                     worker_threads.emplace_back(
                         [this, n](std::stop_token s)
                     {
-                        detail::g_thread_id = n;
                         while (!s.stop_requested())
                         {
                             if (detail::job j; _pop(j))
