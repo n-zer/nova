@@ -9,6 +9,7 @@
 #include <cassert>
 #include <functional>
 #include <numeric>
+#include <semaphore>
 
 namespace nova 
 {
@@ -122,7 +123,7 @@ namespace nova
         {
             work_context(thread_pool& threadPool) : thread_pool(threadPool) {}
             thread_pool& thread_pool;
-            std::atomic<uint32_t> task_count{};
+            std::atomic<uint32_t> ref_count{};
             std::atomic<uint32_t> job_count{};
         };
 
@@ -133,26 +134,32 @@ namespace nova
                 : work_context(&workContext)
             {
                 work_context->job_count.fetch_add(1);
+                work_context->ref_count.fetch_add(1);
             }
 
             ~job_context()
             {
                 if (work_context
-                    && work_context->job_count.fetch_sub(1) == 0
-                    && work_context->task_count.load() == 0)
+                    && work_context->job_count.fetch_sub(1) == 1)
+                {
+                    work_context->job_count.notify_all();
+                }
+
+                if (work_context 
+                    && work_context->ref_count.fetch_sub(1) == 1)
                 {
                     delete work_context;
                 }
             }
 
             job_context(
-                job_context&& other)
+                job_context&& other) noexcept
             {
                 *this = std::move(other);
             }
 
             job_context& operator=(
-                job_context&& other)
+                job_context&& other) noexcept
             {
                 work_context = other.work_context;
                 other.work_context = nullptr;
@@ -167,14 +174,13 @@ namespace nova
             task_context(
                 work_context& workContext) : work_context(&workContext)
             {
-                work_context->task_count.fetch_add(1);
+                work_context->ref_count.fetch_add(1);
             }
 
             ~task_context()
             {
                 if (work_context
-                    && work_context->job_count.load() == 0
-                    && work_context->task_count.fetch_sub(1) == 0)
+                    && work_context->ref_count.fetch_sub(1) == 1)
                 {
                     delete work_context;
                 }
@@ -190,18 +196,18 @@ namespace nova
                 const task_context& other)
             {
                 work_context = other.work_context;
-                work_context->task_count.fetch_add(1);
+                work_context->ref_count.fetch_add(1);
                 return *this;
             }
 
             task_context(
-                task_context&& other)
+                task_context&& other) noexcept
             {
                 *this = std::move(other);
             }
 
             task_context& operator=(
-                task_context&& other)
+                task_context&& other) noexcept
             {
                 work_context = other.work_context;
                 other.work_context = nullptr;
@@ -228,10 +234,21 @@ namespace nova
                         [this, n](std::stop_token s)
                     {
                         detail::g_thread_id = n;
-                        work_until([s]() { return s.stop_requested(); });
+                        while (!s.stop_requested())
+                        {
+                            if (detail::job j; _pop(j))
+                            {
+                                j();
+                            }
+                        }
                     });
                 }
             }
+        }
+
+        ~thread_pool()
+        {
+            job_semaphore.release(worker_threads.size() + 1);
         }
 
         class task
@@ -244,10 +261,27 @@ namespace nova
 
             void wait()
             {
-                if (context.work_context && context.work_context->job_count.load())
+                if (!context.work_context)
                 {
-                    context.work_context->thread_pool.work_until(
-                        [&workContext = *context.work_context]() { return workContext.job_count.load() == 0; });
+                    return;
+                }
+
+                thread_pool& threadPool = context.work_context->thread_pool;
+                while (true)
+                {
+                    auto jobCount = context.work_context->job_count.load();
+                    if (!jobCount)
+                    {
+                        return;
+                    }
+
+                    if (detail::job j; threadPool._try_pop(j))
+                    {
+                        j();
+                        continue;
+                    }
+
+                    context.work_context->job_count.wait(jobCount);
                 }
             }
 
@@ -268,7 +302,7 @@ namespace nova
             task& handle, 
             Func&&... func)
         {
-            (_push_to_queue(
+            (_helpful_push(
                 [context = job_context(*handle.context.work_context), f = std::forward<Func>(func)]() mutable { f(); }), ...);
         }
 
@@ -302,7 +336,7 @@ namespace nova
             auto grain = range.grain ? range.grain : (range.distance() + thread_count() - 1) / thread_count();
             for (size_t n = 0; n < range.end; n += grain)
             {
-                _push_to_queue(
+                _helpful_push(
                     [start = n, end = std::min(n + grain, range.end), context = job_context(*handle.context.work_context), &func]()
                 {
                     func(start, end);
@@ -313,35 +347,63 @@ namespace nova
 
         size_t thread_count() const { return worker_threads.size() + 1; }
 
-        template<typename StopFunc>
-        void work_until(
-            StopFunc&& stopFunc)
+    private:
+        void _helpful_push(
+            detail::job&& job)
         {
-            while (!stopFunc())
+            while (!_try_push(std::move(job)))
             {
-                if (detail::job j; job_queue.try_pop(j))
+                if (detail::job j; _try_pop(j))
                 {
                     j();
                 }
             }
         }
 
-    private:
-        template<typename Func>
-        void _push_to_queue(
-            Func&& func)
+        bool _try_push(
+            detail::job&& job)
         {
-            while (!job_queue.try_push(std::forward<Func>(func)))
+            if (job_queue.try_push(std::move(job)))
             {
-                if (detail::job j; job_queue.try_pop(j))
-                {
-                    j();
-                }
+                job_semaphore.release();
+                return true;
             }
+
+            return false;
+        }
+
+        bool _try_pop(
+            detail::job& j)
+        {
+            if (!job_semaphore.try_acquire())
+            {
+                return false;
+            }
+
+            if (job_queue.try_pop(j))
+            {
+                return true;
+            }
+
+            job_semaphore.release();
+            return false;
+        }
+
+        bool _pop(
+            detail::job& j)
+        {
+            job_semaphore.acquire();
+            if (job_queue.try_pop(j))
+            {
+                return true;
+            }
+            job_semaphore.release();
+            return false;
         }
 
         std::vector<std::jthread> worker_threads;
         detail::mpmc_ring_buffer<detail::job, Capacity> job_queue;
+        std::counting_semaphore<> job_semaphore{ 0 };
     };
 }
 
