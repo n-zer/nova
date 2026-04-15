@@ -332,7 +332,7 @@ namespace nova
             for (size_t n = 0; n < range.end; n += grain)
             {
                 _helpful_push(
-                    [start = n, end = std::min(n + grain, range.end), context = job_context(*handle.context.work_context), &func]()
+                    [start = n, end = std::min(n + grain, range.end), context = job_context(*handle.context.work_context), &func]() mutable
                 {
                     func(start, end);
                 });
