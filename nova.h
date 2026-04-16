@@ -15,7 +15,7 @@ namespace nova
 {
     namespace detail
     {
-        template<typename T, std::size_t Size>
+        template<typename T>
         class mpmc_ring_buffer
         {
             struct Node
@@ -24,16 +24,17 @@ namespace nova
                 std::atomic<std::size_t> sequence;
             };
 
-            static_assert((Size & (Size - 1)) == 0, "Size must be power of 2");
-
-            Node buffer[Size];
+            std::vector<Node> buffer;
             alignas(64) std::atomic<std::size_t> enqueue_pos;
             alignas(64) std::atomic<std::size_t> dequeue_pos;
 
         public:
-            mpmc_ring_buffer()
+            mpmc_ring_buffer(size_t capacity)
+                : buffer(capacity)
             {
-                for (std::size_t i = 0; i < Size; ++i)
+                // Size must be a power of two
+                assert((capacity & (capacity - 1)) == 0);
+                for (std::size_t i = 0; i < capacity; ++i)
                 {
                     buffer[i].sequence.store(i);
                 }
@@ -41,13 +42,15 @@ namespace nova
                 dequeue_pos.store(0);
             }
 
+            size_t capacity() const { return buffer.size(); }
+
             bool try_push(
                 T&& data)
             {
                 while (true)
                 {
                     auto pos = enqueue_pos.load(std::memory_order_relaxed);
-                    auto* node = &buffer[pos & (Size - 1)];
+                    auto* node = &buffer[pos & (capacity() - 1)];
                     auto seq = node->sequence.load(std::memory_order_acquire);
                     auto diff = (intptr_t)seq - (intptr_t)pos;
 
@@ -76,7 +79,7 @@ namespace nova
                 while (true)
                 {
                     auto pos = dequeue_pos.load(std::memory_order_relaxed);
-                    auto* node = &buffer[pos & (Size - 1)];
+                    auto* node = &buffer[pos & (capacity() - 1)];
                     auto seq = node->sequence.load(std::memory_order_acquire);
                     auto diff = (intptr_t)seq - (intptr_t)(pos + 1);
 
@@ -86,7 +89,7 @@ namespace nova
                         if (dequeue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_acq_rel, std::memory_order_relaxed))
                         {
                             data = std::move(node->data);
-                            node->sequence.store(pos + Size, std::memory_order_release);
+                            node->sequence.store(pos + capacity(), std::memory_order_release);
                             return true;
                         }
                     }
@@ -112,7 +115,6 @@ namespace nova
         size_t distance() const { return end - start; }
     };
 
-    template<size_t Capacity = 128>
     class thread_pool
     {
         struct work_context
@@ -214,14 +216,21 @@ namespace nova
         };
 
     public:
-        thread_pool(
-            size_t numThreads = std::thread::hardware_concurrency())
+        struct params
         {
-            assert(numThreads > 0);
+            size_t num_threads = std::thread::hardware_concurrency();
+            // Must be power of two
+            size_t queue_capacity = 1024;
+        };
+        thread_pool(
+            const params& params = {})
+            : job_queue(params.queue_capacity)
+        {
+            assert(params.num_threads > 0);
 
-            if (numThreads > 1)
+            if (params.num_threads > 1)
             {
-                worker_threads.reserve(numThreads - 1);
+                worker_threads.reserve(params.num_threads - 1);
 
                 // Main thread is ID 0. Worker threads are IDs 1 and onward.
                 for (size_t n = 1; n <= worker_threads.capacity(); ++n)
@@ -396,8 +405,8 @@ namespace nova
             return false;
         }
 
+        detail::mpmc_ring_buffer<detail::job> job_queue;
         std::vector<std::jthread> worker_threads;
-        detail::mpmc_ring_buffer<detail::job, Capacity> job_queue;
         std::counting_semaphore<> job_semaphore{ 0 };
     };
 }
