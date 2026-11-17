@@ -119,8 +119,8 @@ namespace nova
     {
         struct work_context
         {
-            work_context(thread_pool& threadPool) : thread_pool(threadPool) {}
-            thread_pool& thread_pool;
+            work_context(thread_pool& threadPool) : pool(threadPool) {}
+            thread_pool& pool;
             std::atomic<uint32_t> ref_count{};
             std::atomic<uint32_t> job_count{};
         };
@@ -129,24 +129,24 @@ namespace nova
         {
             job_context(
                 work_context& workContext)
-                : work_context(&workContext)
+                : ctx(&workContext)
             {
-                work_context->job_count.fetch_add(1);
-                work_context->ref_count.fetch_add(1);
+                ctx->job_count.fetch_add(1);
+                ctx->ref_count.fetch_add(1);
             }
 
             ~job_context()
             {
-                if (work_context
-                    && work_context->job_count.fetch_sub(1) == 1)
+                if (ctx
+                    && ctx->job_count.fetch_sub(1) == 1)
                 {
-                    work_context->job_count.notify_all();
+                    ctx->job_count.notify_all();
                 }
 
-                if (work_context 
-                    && work_context->ref_count.fetch_sub(1) == 1)
+                if (ctx
+                    && ctx->ref_count.fetch_sub(1) == 1)
                 {
-                    delete work_context;
+                    delete ctx;
                 }
             }
 
@@ -159,28 +159,28 @@ namespace nova
             job_context& operator=(
                 job_context&& other) noexcept
             {
-                work_context = other.work_context;
-                other.work_context = nullptr;
+                ctx = other.ctx;
+                other.ctx = nullptr;
                 return *this;
             }
 
-            work_context* work_context;
+            work_context* ctx;
         };
 
         struct task_context
         {
             task_context(
-                work_context& workContext) : work_context(&workContext)
+                work_context& workContext) : ctx(&workContext)
             {
-                work_context->ref_count.fetch_add(1);
+                ctx->ref_count.fetch_add(1);
             }
 
             ~task_context()
             {
-                if (work_context
-                    && work_context->ref_count.fetch_sub(1) == 1)
+                if (ctx
+                    && ctx->ref_count.fetch_sub(1) == 1)
                 {
-                    delete work_context;
+                    delete ctx;
                 }
             }
 
@@ -193,8 +193,8 @@ namespace nova
             task_context& operator=(
                 const task_context& other)
             {
-                work_context = other.work_context;
-                work_context->ref_count.fetch_add(1);
+                ctx = other.ctx;
+                ctx->ref_count.fetch_add(1);
                 return *this;
             }
 
@@ -207,12 +207,12 @@ namespace nova
             task_context& operator=(
                 task_context&& other) noexcept
             {
-                work_context = other.work_context;
-                other.work_context = nullptr;
+                ctx = other.ctx;
+                other.ctx = nullptr;
                 return *this;
             }
 
-            work_context* work_context;
+            work_context* ctx;
         };
 
     public:
@@ -222,8 +222,13 @@ namespace nova
             // Must be power of two
             size_t queue_capacity = 1024;
         };
-        thread_pool(
-            const params& params = {})
+        thread_pool()
+            : thread_pool(params{})
+        {
+        }
+
+        explicit thread_pool(
+            const params& params)
             : job_queue(params.queue_capacity)
         {
             assert(params.num_threads > 0);
@@ -236,7 +241,7 @@ namespace nova
                 for (size_t n = 1; n <= worker_threads.capacity(); ++n)
                 {
                     worker_threads.emplace_back(
-                        [this, n](std::stop_token s)
+                        [this](std::stop_token s)
                     {
                         while (!s.stop_requested())
                         {
@@ -252,7 +257,13 @@ namespace nova
 
         ~thread_pool()
         {
+            for (auto& t : worker_threads)
+            {
+                t.request_stop();
+            }
             job_semaphore.release(worker_threads.size() + 1);
+            // Join before job_semaphore and job_queue are destroyed.
+            worker_threads.clear();
         }
 
         class task
@@ -265,15 +276,15 @@ namespace nova
 
             void wait()
             {
-                if (!context.work_context)
+                if (!context.ctx)
                 {
                     return;
                 }
 
-                thread_pool& threadPool = context.work_context->thread_pool;
+                thread_pool& threadPool = context.ctx->pool;
                 while (true)
                 {
-                    auto jobCount = context.work_context->job_count.load();
+                    auto jobCount = context.ctx->job_count.load();
                     if (!jobCount)
                     {
                         return;
@@ -285,7 +296,7 @@ namespace nova
                         continue;
                     }
 
-                    context.work_context->job_count.wait(jobCount);
+                    context.ctx->job_count.wait(jobCount);
                 }
             }
 
@@ -307,7 +318,7 @@ namespace nova
             Func&&... func)
         {
             (_helpful_push(
-                [context = job_context(*handle.context.work_context), f = std::forward<Func>(func)]() mutable { f(); }), ...);
+                [context = job_context(*handle.context.ctx), f = std::forward<Func>(func)]() mutable { f(); }), ...);
         }
 
         template<typename... Func>
@@ -338,10 +349,10 @@ namespace nova
         {
             task handle(*this);
             auto grain = range.grain ? range.grain : (range.distance() + thread_count() - 1) / thread_count();
-            for (size_t n = 0; n < range.end; n += grain)
+            for (size_t n = range.start; n < range.end; n += grain)
             {
                 _helpful_push(
-                    [start = n, end = std::min(n + grain, range.end), context = job_context(*handle.context.work_context), &func]() mutable
+                    [start = n, end = std::min(n + grain, range.end), context = job_context(*handle.context.ctx), &func]() mutable
                 {
                     func(start, end);
                 });
